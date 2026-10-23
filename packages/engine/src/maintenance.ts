@@ -6,7 +6,7 @@
 // `status = 'ok'`, `status != 'ok'` and `is_starred = 0` stay literals: a bound
 // parameter would stop SQLite from matching the partial indexes.
 
-import type { Config, Retention } from "./index";
+import type { Config, Retention } from "./config";
 
 export interface MaintenanceReport {
   tombstoned: number;
