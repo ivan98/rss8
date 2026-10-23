@@ -4,7 +4,7 @@ export { syncConfig } from "./config-sync";
 export { cronMatches, isDue, parseCron, tickWindow, type CronSchedule, type LocalMinute } from "./cron";
 export type { EngineEnv } from "./env";
 export { parseFeed, type FeedEntry } from "./feed-scan";
-export type { EngineMessage } from "./messages";
+export { MAX_RETRIES, type EngineMessage } from "./messages";
 export { Runner } from "./runner";
 export {
   defineSource,
