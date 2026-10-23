@@ -1,8 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
 
+export { syncConfig } from "./config-sync";
+export { bindIdQuery, syncIdQueries, type IdQuery, type Page, type Since } from "./sync-queries";
+
 export interface EngineEnv {
   RUNNER: DurableObjectNamespace<Runner>;
   API: DurableObjectNamespace<Api>;
+  DB: D1Database;
 }
 
 export interface Source {
