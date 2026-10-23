@@ -22,11 +22,19 @@ export interface FeedConfig {
   siteUrl?: string;
   options?: unknown;
   schedule?: string[];
+  retention?: Partial<Retention>;
+}
+
+export interface Retention {
+  readDays: number;
+  unreadDays: number;
+  maxItems: number;
 }
 
 export interface Config {
   timezone: string;
-  retentionDays: number;
+  retention: Retention;
+  tombstoneDays: number;
   feeds: FeedConfig[];
 }
 

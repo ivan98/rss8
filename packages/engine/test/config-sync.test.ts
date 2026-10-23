@@ -6,7 +6,7 @@ const db = env.DB;
 const KINDS = ["example", "other"];
 
 function config(...feeds: FeedConfig[]): Config {
-  return { timezone: "UTC", retentionDays: 30, feeds };
+  return { timezone: "UTC", retention: { readDays: 30, unreadDays: 90, maxItems: 1000 }, tombstoneDays: 365, feeds };
 }
 
 const feedA: FeedConfig = {
@@ -18,6 +18,9 @@ const feedA: FeedConfig = {
   options: { sections: [1, 2] },
 };
 const feedB: FeedConfig = { key: "feed-b", source: "example", enabled: true };
+
+// @ts-expect-error tombstoneDays is global and cannot be set per feed
+const _perFeedTombstone: FeedConfig = { ...feedB, retention: { tombstoneDays: 1 } };
 
 interface FeedRow {
   id: number;
