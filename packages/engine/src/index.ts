@@ -1,7 +1,7 @@
 export { Api } from "./api";
 export { defineConfig, type Config, type FeedConfig, type Retention } from "./config";
 export { syncConfig } from "./config-sync";
-export { cronMatches, isDue, parseCron, tickWindow, type CronSchedule, type LocalMinute } from "./cron";
+export { cronMatches, isDue, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 export type { EngineEnv } from "./env";
 export { parseFeed, type FeedEntry } from "./feed-scan";
 export { MAINTENANCE_LIMITS, runMaintenance, type MaintenanceLimits, type MaintenanceReport } from "./maintenance";
@@ -18,4 +18,4 @@ export {
   type SourceContext,
 } from "./source";
 export { bindIdQuery, syncIdQueries, type IdQuery, type Page, type Since } from "./sync-queries";
-export { createWorker, MAINTENANCE_SCHEDULE, TICK_MINUTES } from "./worker";
+export { createWorker, MAINTENANCE_LOCAL_TIME, TICK_MINUTES } from "./worker";

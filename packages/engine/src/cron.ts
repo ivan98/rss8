@@ -15,6 +15,7 @@ export interface CronSchedule {
 
 /** Wall-clock fields of one minute in some time zone. */
 export interface LocalMinute {
+  year: number;
   minute: number;
   hour: number;
   dayOfMonth: number;
@@ -92,6 +93,7 @@ export function localMinute(timezone: string, epochMs: number): LocalMinute {
     format = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       hourCycle: "h23",
+      year: "numeric",
       month: "numeric",
       day: "numeric",
       hour: "numeric",
@@ -103,6 +105,7 @@ export function localMinute(timezone: string, epochMs: number): LocalMinute {
   const parts: Record<string, string> = {};
   for (const p of format.formatToParts(epochMs)) parts[p.type] = p.value;
   return {
+    year: Number(parts.year),
     minute: Number(parts.minute),
     hour: Number(parts.hour),
     dayOfMonth: Number(parts.day),
@@ -111,16 +114,55 @@ export function localMinute(timezone: string, epochMs: number): LocalMinute {
   };
 }
 
+const MINUTE_MS = 60_000;
+
 /**
- * The minutes a tick covers: (tick - windowMinutes, tick], in `timezone`.
- * A schedule is due on this tick if it matches any of them, so an expression
- * that isn't aligned to the trigger interval runs on the next tick after it.
+ * Every minute in (afterMs, untilMs], both rounded down to the minute, in
+ * `timezone`. Formatting each minute would cost one `formatToParts` per minute,
+ * too slow for a day-long window in a 10 ms invocation, so the zone's offset is
+ * formatted only at the ends of a span. Equal ends mean one offset for the whole
+ * span (no zone changes offset twice within a day); unequal ends are bisected.
  */
-export function tickWindow(timezone: string, tickMs: number, windowMinutes: number): LocalMinute[] {
-  const end = Math.floor(tickMs / 60_000) * 60_000;
+export function localMinutes(timezone: string, afterMs: number, untilMs: number): LocalMinute[] {
+  const first = Math.floor(afterMs / MINUTE_MS) * MINUTE_MS + MINUTE_MS;
+  const last = Math.floor(untilMs / MINUTE_MS) * MINUTE_MS;
   const minutes: LocalMinute[] = [];
-  for (let i = windowMinutes - 1; i >= 0; i--) minutes.push(localMinute(timezone, end - i * 60_000));
+  if (first <= last) fill(timezone, first, offsetAt(timezone, first), last, offsetAt(timezone, last), minutes);
   return minutes;
+}
+
+function fill(
+  timezone: string,
+  first: number,
+  firstOffset: number,
+  last: number,
+  lastOffset: number,
+  out: LocalMinute[],
+): void {
+  if (firstOffset === lastOffset) {
+    for (let t = first; t <= last; t += MINUTE_MS) out.push(shifted(t + firstOffset));
+    return;
+  }
+  const mid = Math.floor((first + last) / 2 / MINUTE_MS) * MINUTE_MS;
+  fill(timezone, first, firstOffset, mid, offsetAt(timezone, mid), out);
+  fill(timezone, mid + MINUTE_MS, offsetAt(timezone, mid + MINUTE_MS), last, lastOffset, out);
+}
+
+function offsetAt(timezone: string, minuteMs: number): number {
+  const t = localMinute(timezone, minuteMs);
+  return Date.UTC(t.year, t.month - 1, t.dayOfMonth, t.hour, t.minute) - minuteMs;
+}
+
+function shifted(localMs: number): LocalMinute {
+  const d = new Date(localMs);
+  return {
+    year: d.getUTCFullYear(),
+    minute: d.getUTCMinutes(),
+    hour: d.getUTCHours(),
+    dayOfMonth: d.getUTCDate(),
+    month: d.getUTCMonth() + 1,
+    dayOfWeek: d.getUTCDay(),
+  };
 }
 
 export function isDue(schedules: readonly CronSchedule[], window: readonly LocalMinute[]): boolean {

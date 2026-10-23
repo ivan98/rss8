@@ -1,11 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { cronMatches, isDue, localMinute, parseCron, tickWindow } from "../src/cron";
-import { MAINTENANCE_SCHEDULE, TICK_MINUTES } from "../src/worker";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cronMatches, isDue, localMinute, localMinutes, parseCron } from "../src/cron";
+import { TICK_MINUTES } from "../src/worker";
 
 const SGT = "Asia/Singapore";
 
 function dueAt(expressions: string[], utc: string, timezone = SGT): boolean {
-  return isDue(expressions.map(parseCron), tickWindow(timezone, Date.parse(utc), TICK_MINUTES));
+  const tick = Date.parse(utc);
+  return isDue(expressions.map(parseCron), localMinutes(timezone, tick - TICK_MINUTES * 60_000, tick));
 }
 
 /** UTC tick times (ISO) within one day from `startUtc` at which the schedule is due. */
@@ -46,9 +47,9 @@ describe("parseCron", () => {
 });
 
 describe("cronMatches", () => {
-  const monday1st = { minute: 0, hour: 0, dayOfMonth: 1, month: 6, dayOfWeek: 1 };
-  const tuesday2nd = { minute: 0, hour: 0, dayOfMonth: 2, month: 6, dayOfWeek: 2 };
-  const friday13th = { minute: 0, hour: 0, dayOfMonth: 13, month: 6, dayOfWeek: 5 };
+  const monday1st = { year: 2026, minute: 0, hour: 0, dayOfMonth: 1, month: 6, dayOfWeek: 1 };
+  const tuesday2nd = { year: 2026, minute: 0, hour: 0, dayOfMonth: 2, month: 6, dayOfWeek: 2 };
+  const friday13th = { year: 2026, minute: 0, hour: 0, dayOfMonth: 13, month: 6, dayOfWeek: 5 };
 
   it("matches either day field when both are restricted", () => {
     const s = parseCron("0 0 1 * 5");
@@ -67,6 +68,7 @@ describe("cronMatches", () => {
 describe("schedules in Asia/Singapore (UTC+8)", () => {
   it("reads the local wall clock across the UTC day boundary", () => {
     expect(localMinute(SGT, Date.parse("2026-10-25T16:30:00Z"))).toEqual({
+      year: 2026,
       minute: 30,
       hour: 0,
       dayOfMonth: 26,
@@ -115,8 +117,47 @@ describe("schedules in Asia/Singapore (UTC+8)", () => {
       "2026-10-24T22:45",
     ]);
   });
+});
 
-  it("runs maintenance once a day at 05:15 local time", () => {
-    expect(dueTicks([MAINTENANCE_SCHEDULE], "2026-10-25T00:00Z")).toEqual(["2026-10-25T21:15"]);
+describe("localMinutes", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function formatMinuteByMinute(timezone: string, afterMs: number, untilMs: number) {
+    const minutes = [];
+    for (let t = afterMs + 60_000; t <= untilMs; t += 60_000) minutes.push(localMinute(timezone, t));
+    return minutes;
+  }
+
+  const day = 24 * 3_600_000;
+  it.each([
+    ["Europe/London", "2026-10-24T12:00:00Z"],
+    ["America/New_York", "2026-03-07T12:00:00Z"],
+    ["Australia/Lord_Howe", "2026-04-04T12:00:00Z"],
+    ["Asia/Singapore", "2026-12-31T04:00:00Z"],
+  ])("gives the same 24 h of minutes in %s from %s as formatting each one", (timezone, start) => {
+    const after = Date.parse(start);
+    const expected = formatMinuteByMinute(timezone, after, after + day);
+    expect(expected).toHaveLength(1440);
+    expect(localMinutes(timezone, after, after + day)).toEqual(expected);
+  });
+
+  it("covers (after, until] rounded down to the minute", () => {
+    const after = Date.parse("2026-10-25T01:00:30Z");
+    const until = Date.parse("2026-10-25T01:03:59Z");
+    expect(localMinutes("UTC", after, until).map((t) => t.minute)).toEqual([1, 2, 3]);
+    expect(localMinutes("UTC", until, until)).toEqual([]);
+  });
+
+  it("formats a few minutes, not every one, for a day that changes offset", () => {
+    const format = vi.spyOn(Intl.DateTimeFormat.prototype, "formatToParts");
+    const after = Date.parse("2026-10-24T12:00:00Z");
+    localMinutes("Europe/London", after, after + day);
+    expect(format.mock.calls.length).toBeLessThanOrEqual(30);
+
+    format.mockClear();
+    localMinutes("Europe/London", after + 2 * day, after + 3 * day);
+    expect(format.mock.calls.length).toBe(2);
   });
 });

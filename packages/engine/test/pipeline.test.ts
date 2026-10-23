@@ -356,15 +356,35 @@ describe("cron dispatcher", () => {
     { key: "odd", source: "fake-feed", enabled: true, options: { url: OTHER_URL }, schedule: ["7 9 * * *"] },
     { key: "off", source: "fake-feed", enabled: false, options: { url: FEED_URL } },
   ]);
+  const at15and25 = testConfig([
+    { key: "at15", source: "fake-feed", enabled: true, options: { url: FEED_URL }, schedule: ["15 * * * *"] },
+    { key: "at25", source: "fake-feed", enabled: true, options: { url: OTHER_URL }, schedule: ["25 * * * *"] },
+  ]);
 
-  async function tick(iso: string) {
-    const worker = await setup(config);
+  function controllerAt(iso: string) {
+    return createScheduledController({ scheduledTime: Date.parse(iso) });
+  }
+
+  async function tick(iso: string, tickConfig = config) {
+    const worker = await setup(tickConfig);
     const sent = captureQueue();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    await worker.scheduled(createScheduledController({ scheduledTime: Date.parse(iso) }), engineEnv);
+    await worker.scheduled(controllerAt(iso), engineEnv);
     const maintenanceRuns = log.mock.calls.filter((c) => c[0] === "maintenance").length;
     vi.restoreAllMocks();
     return { sent, maintenanceRuns };
+  }
+
+  async function enqueuedKeys(iso: string, tickConfig = at15and25): Promise<string[]> {
+    const { sent } = await tick(iso, tickConfig);
+    const ids = sent.map((m) => (m.body as { feedId: number }).feedId);
+    const keys = [];
+    for (const f of tickConfig.feeds) if (ids.includes(await feedId(f.key))) keys.push(f.key);
+    return keys;
+  }
+
+  async function metaValue(key: string) {
+    return db.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first<string>("value");
   }
 
   it("enqueues discover for feeds due on the tick, by their schedule in the config time zone", async () => {
@@ -384,14 +404,126 @@ describe("cron dispatcher", () => {
     await db.prepare("UPDATE feed SET archived_at = 1 WHERE key = 'hourly'").run();
     const worker = await setup(testConfig(config.feeds.filter((f) => f.key !== "hourly")));
     const sent = captureQueue();
-    await worker.scheduled(createScheduledController({ scheduledTime: Date.parse("2026-10-25T01:00:00Z") }), engineEnv);
+    await worker.scheduled(controllerAt("2026-10-25T01:00:00Z"), engineEnv);
     expect(sent).toEqual([]);
   });
 
-  it("runs maintenance only on the 05:15 SGT tick", async () => {
-    expect((await tick("2026-10-25T21:15:00Z")).maintenanceRuns).toBe(1);
-    expect((await tick("2026-10-25T21:00:00Z")).maintenanceRuns).toBe(0);
-    expect((await tick("2026-10-25T05:15:00Z")).maintenanceRuns).toBe(0);
+  it("covers only the last 15 minutes on the first tick ever and records the tick", async () => {
+    expect(await enqueuedKeys("2026-10-25T08:30:00Z")).toEqual(["at25"]);
+    expect(await metaValue("last_tick")).toBe(String(Date.parse("2026-10-25T08:30:00Z")));
+  });
+
+  it("catches up a skipped tick on the next one", async () => {
+    expect(await enqueuedKeys("2026-10-25T08:00:00Z")).toEqual([]);
+    expect(await enqueuedKeys("2026-10-25T08:30:00Z")).toEqual(["at15", "at25"]);
+  });
+
+  it("treats a late tick like an on-time one and the next tick resumes after it", async () => {
+    await enqueuedKeys("2026-10-25T08:00:00Z");
+    expect(await enqueuedKeys("2026-10-25T08:23:36Z")).toEqual(["at15"]);
+    expect(await enqueuedKeys("2026-10-25T08:30:00Z")).toEqual(["at25"]);
+  });
+
+  it("ignores a tick older than the last one, maintenance included", async () => {
+    expect((await tick("2026-10-25T21:15:00Z", at15and25)).maintenanceRuns).toBe(1);
+    // 16:15 SGT on the previous local day: a feed and maintenance would be due if it counted.
+    expect(await tick("2026-10-25T08:15:00Z", at15and25)).toEqual({ sent: [], maintenanceRuns: 0 });
+    expect(await metaValue("last_tick")).toBe(String(Date.parse("2026-10-25T21:15:00Z")));
+    expect(await metaValue("maintenance_date")).toBe("2026-10-26");
+  });
+
+  it("never moves last_tick back when an older tick finishes after a newer one", async () => {
+    const worker = await setup(at15and25);
+    const sent = captureQueue();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(engineEnv.QUEUE, "sendBatch").mockImplementationOnce(async (messages) => {
+      await held;
+      sent.push(...messages);
+      return {} as QueueSendBatchResponse;
+    });
+
+    const older = worker.scheduled(controllerAt("2026-10-25T08:15:00Z"), engineEnv);
+    await vi.waitFor(() => expect(engineEnv.QUEUE.sendBatch).toHaveBeenCalledTimes(1));
+    await worker.scheduled(controllerAt("2026-10-25T08:30:00Z"), engineEnv);
+    release();
+    await older;
+
+    expect(await metaValue("last_tick")).toBe(String(Date.parse("2026-10-25T08:30:00Z")));
+  });
+
+  it("covers only the last 24 hours after a longer outage", async () => {
+    const outage = testConfig([
+      // Friday 12:00 SGT is two days before the tick; Sunday 12:00 SGT is the same day.
+      { key: "friday", source: "fake-feed", enabled: true, options: { url: FEED_URL }, schedule: ["0 12 * * 5"] },
+      { key: "sunday", source: "fake-feed", enabled: true, options: { url: OTHER_URL }, schedule: ["0 12 * * 0"] },
+    ]);
+    const tickAt = "2026-10-25T08:30:00Z";
+    await setup(outage);
+    await db
+      .prepare("INSERT INTO meta (key, value) VALUES ('last_tick', ?)")
+      .bind(String(Date.parse(tickAt) - 72 * 3_600_000))
+      .run();
+
+    expect(await enqueuedKeys(tickAt, outage)).toEqual(["sunday"]);
+  });
+
+  it("keeps last_tick when sending fails, so the next tick covers the window again", async () => {
+    await enqueuedKeys("2026-10-25T08:00:00Z");
+    const worker = await setup(at15and25);
+    captureQueue();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(engineEnv.QUEUE, "sendBatch").mockRejectedValueOnce(new Error("queue down"));
+
+    await expect(worker.scheduled(controllerAt("2026-10-25T08:15:00Z"), engineEnv)).rejects.toThrow("queue down");
+    vi.restoreAllMocks();
+
+    expect(await metaValue("last_tick")).toBe(String(Date.parse("2026-10-25T08:00:00Z")));
+    expect(await enqueuedKeys("2026-10-25T08:30:00Z")).toEqual(["at15", "at25"]);
+  });
+
+  describe("maintenance", () => {
+    // 05:15 SGT is 21:15 UTC the day before.
+    it("runs on the first tick at or after 05:15 local time and records the local date", async () => {
+      expect((await tick("2026-10-25T21:00:00Z")).maintenanceRuns).toBe(0);
+      expect((await tick("2026-10-25T21:15:00Z")).maintenanceRuns).toBe(1);
+      expect(await metaValue("maintenance_date")).toBe("2026-10-26");
+    });
+
+    it("runs on the next tick when the 05:15 tick is skipped", async () => {
+      expect((await tick("2026-10-25T21:00:00Z")).maintenanceRuns).toBe(0);
+      expect((await tick("2026-10-25T21:30:00Z")).maintenanceRuns).toBe(1);
+    });
+
+    it("runs once per local day", async () => {
+      expect((await tick("2026-10-25T21:15:00Z")).maintenanceRuns).toBe(1);
+      expect((await tick("2026-10-25T21:30:00Z")).maintenanceRuns).toBe(0);
+      expect((await tick("2026-10-26T15:45:00Z")).maintenanceRuns).toBe(0);
+      // 00:00 SGT is a new local day, but before 05:15.
+      expect((await tick("2026-10-26T16:00:00Z")).maintenanceRuns).toBe(0);
+      expect((await tick("2026-10-26T21:15:00Z")).maintenanceRuns).toBe(1);
+      expect(await metaValue("maintenance_date")).toBe("2026-10-27");
+    });
+
+    it("retries on the next tick when it throws", async () => {
+      const worker = await setup(config);
+      captureQueue();
+      const prepare = db.prepare.bind(db);
+      vi.spyOn(engineEnv.DB, "prepare").mockImplementation((sql) => {
+        if (sql.startsWith("SELECT id, key, archived_at FROM feed")) throw new Error("maintenance broke");
+        return prepare(sql);
+      });
+
+      await expect(worker.scheduled(controllerAt("2026-10-25T21:15:00Z"), engineEnv)).rejects.toThrow(
+        "maintenance broke",
+      );
+      vi.restoreAllMocks();
+
+      expect(await metaValue("maintenance_date")).toBeNull();
+      expect(await metaValue("last_tick")).toBe(String(Date.parse("2026-10-25T21:15:00Z")));
+      expect((await tick("2026-10-25T21:30:00Z")).maintenanceRuns).toBe(1);
+    });
   });
 });
 
