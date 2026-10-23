@@ -1,67 +1,20 @@
-import { DurableObject } from "cloudflare:workers";
-
+export { Api } from "./api";
+export { defineConfig, type Config, type FeedConfig, type Retention } from "./config";
 export { syncConfig } from "./config-sync";
+export { cronMatches, isDue, parseCron, tickWindow, type CronSchedule, type LocalMinute } from "./cron";
+export type { EngineEnv } from "./env";
+export { parseFeed, type FeedEntry } from "./feed-scan";
+export type { EngineMessage } from "./messages";
+export { Runner } from "./runner";
+export {
+  defineSource,
+  type Article,
+  type Candidate,
+  type DiscoverContext,
+  type Feed,
+  type FeedFetch,
+  type Source,
+  type SourceContext,
+} from "./source";
 export { bindIdQuery, syncIdQueries, type IdQuery, type Page, type Since } from "./sync-queries";
-
-export interface EngineEnv {
-  RUNNER: DurableObjectNamespace<Runner>;
-  API: DurableObjectNamespace<Api>;
-  DB: D1Database;
-}
-
-export interface Source {
-  apiVersion: 1;
-  kind: string;
-}
-
-export interface FeedConfig {
-  key: string;
-  source: string;
-  enabled: boolean;
-  title?: string;
-  siteUrl?: string;
-  options?: unknown;
-  schedule?: string[];
-  retention?: Partial<Retention>;
-}
-
-export interface Retention {
-  readDays: number;
-  unreadDays: number;
-  maxItems: number;
-}
-
-export interface Config {
-  timezone: string;
-  retention: Retention;
-  tombstoneDays: number;
-  feeds: FeedConfig[];
-}
-
-export function defineConfig(config: Config): Config {
-  return config;
-}
-
-const notImplemented = () => new Response("Not Implemented", { status: 501 });
-
-export class Runner extends DurableObject<EngineEnv> {
-  override async fetch(): Promise<Response> {
-    return notImplemented();
-  }
-}
-
-export class Api extends DurableObject<EngineEnv> {
-  override async fetch(): Promise<Response> {
-    return notImplemented();
-  }
-}
-
-export function createWorker(_options: { sources: Source[]; config: Config }) {
-  return {
-    async fetch(request: Request): Promise<Response> {
-      const { pathname } = new URL(request.url);
-      if (request.method === "GET" && pathname === "/health") return new Response("OK");
-      return new Response("Not Found", { status: 404 });
-    },
-  } satisfies ExportedHandler<EngineEnv>;
-}
+export { createWorker, MAINTENANCE_SCHEDULE, TICK_MINUTES } from "./worker";

@@ -1,4 +1,4 @@
-import type { Config } from "./index";
+import type { Config } from "./config";
 
 export async function syncConfig(
   db: D1Database,
