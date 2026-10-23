@@ -150,6 +150,11 @@ describe("localMinutes", () => {
     expect(localMinutes("UTC", until, until)).toEqual([]);
   });
 
+  it("refuses a window longer than 24 hours", () => {
+    const after = Date.parse("2026-03-01T00:00:00Z");
+    expect(() => localMinutes("Europe/London", after, after + day + 60_000)).toThrow(RangeError);
+  });
+
   it("formats a few minutes, not every one, for a day that changes offset", () => {
     const format = vi.spyOn(Intl.DateTimeFormat.prototype, "formatToParts");
     const after = Date.parse("2026-10-24T12:00:00Z");

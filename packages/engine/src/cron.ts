@@ -115,6 +115,7 @@ export function localMinute(timezone: string, epochMs: number): LocalMinute {
 }
 
 const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 3_600_000;
 
 /**
  * Every minute in (afterMs, untilMs], both rounded down to the minute, in
@@ -122,8 +123,10 @@ const MINUTE_MS = 60_000;
  * too slow for a day-long window in a 10 ms invocation, so the zone's offset is
  * formatted only at the ends of a span. Equal ends mean one offset for the whole
  * span (no zone changes offset twice within a day); unequal ends are bisected.
+ * That assumption is why the window is limited to a day.
  */
 export function localMinutes(timezone: string, afterMs: number, untilMs: number): LocalMinute[] {
+  if (untilMs - afterMs > DAY_MS) throw new RangeError("localMinutes covers at most 24 hours");
   const first = Math.floor(afterMs / MINUTE_MS) * MINUTE_MS + MINUTE_MS;
   const last = Math.floor(untilMs / MINUTE_MS) * MINUTE_MS;
   const minutes: LocalMinute[] = [];
