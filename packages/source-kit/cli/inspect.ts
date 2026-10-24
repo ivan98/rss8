@@ -134,7 +134,6 @@ async function callLocal(path: string, init: RequestInit): Promise<{ ok: boolean
   }
 }
 
-// The /admin/clean route belongs to the admin routes, which are not built yet.
 async function callRemote(path: string, init: RequestInit): Promise<{ ok: boolean; status: number; text: string }> {
   const base = process.env.RSS8_URL;
   const token = process.env.RSS8_ADMIN_TOKEN;

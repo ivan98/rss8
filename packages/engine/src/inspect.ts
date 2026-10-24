@@ -25,20 +25,29 @@ export interface InspectFailure {
   page?: string;
 }
 
-const ROUTE = /^\/dev\/clean\/([a-z0-9-]+)\/([^/]+)$/;
+/** `/<prefix>/clean/<kind>/<id>`, capturing the kind and the encoded id. */
+export function cleanPath(prefix: string): RegExp {
+  return new RegExp(`^/${prefix}/clean/([a-z0-9-]+)/([^/]+)$`);
+}
+
+const DEV_CLEAN = cleanPath("dev");
+
+/** Undefined when the path isn't a `/dev/clean` route. */
+export async function devCleanRoute(request: Request, env: EngineEnv): Promise<Response | undefined> {
+  const match = DEV_CLEAN.exec(new URL(request.url).pathname);
+  return match ? cleanRoute(request, env, match) : undefined;
+}
 
 /**
- * `GET /dev/clean/<kind>/<id>` fetches and processes an item's page; `POST`
+ * `GET …/clean/<kind>/<id>` fetches and processes an item's page; `POST`
  * processes the page in the body instead. Query: `stage`, `page=1` to return
  * the fetched page, and `report=1` for the source's extra diagnostics. Each
  * request runs in a fresh Runner object, as each article does in production,
  * so its CPU time can be compared with an article invocation's.
- * Undefined when the path isn't a `/dev/clean` route.
+ * `match` is `cleanPath`'s match on the request's path.
  */
-export async function devCleanRoute(request: Request, env: EngineEnv): Promise<Response | undefined> {
+export async function cleanRoute(request: Request, env: EngineEnv, match: RegExpExecArray): Promise<Response> {
   const url = new URL(request.url);
-  const match = ROUTE.exec(url.pathname);
-  if (!match) return undefined;
   const body: InspectRequest = { kind: match[1]!, id: decodeURIComponent(match[2]!) };
   const stage = url.searchParams.get("stage");
   if (stage) body.stage = stage;
