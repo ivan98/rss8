@@ -3,11 +3,10 @@ import { discoverContext, sourceContext } from "./context";
 import type { EngineEnv } from "./env";
 import { runInspect, type InspectRequest } from "./inspect";
 import { runMaintenance } from "./maintenance";
-import { parseMessage, sendAll } from "./messages";
+import { ARTICLE_STAGGER_SECONDS, parseMessage, sendAll, type EngineMessage } from "./messages";
 import { getConfig, getSource, parseOptions, type Candidate } from "./source";
 
 const KEEP_NEWEST = 100;
-const ARTICLE_STAGGER_SECONDS = 2;
 // Each insert binds its candidates as one JSON string; D1 caps a bound value at 2 MB.
 const INSERT_CHUNK_BYTES = 1024 * 1024;
 
@@ -15,6 +14,8 @@ const INSERT_CHUNK_BYTES = 1024 * 1024;
  * One unit of work per request, called by the queue consumer with the message
  * as the body, at `/<message type>`: `/discover`, `/article` or `/maintenance`.
  * Everything durable goes to D1; the object keeps nothing between requests.
+ * `/discover` answers `{"itemIds": [...]}`, the ids it inserted, for the
+ * admin route; the queue consumer only checks the status.
  * `/inspect` serves the `/dev/clean` route and writes nothing.
  */
 export class Runner extends DurableObject<EngineEnv> {
@@ -30,8 +31,7 @@ export class Runner extends DurableObject<EngineEnv> {
     try {
       switch (message.type) {
         case "discover":
-          await discover(this.env, message.feedId, Date.now());
-          break;
+          return Response.json({ itemIds: await discover(this.env, message, Date.now()) });
         case "article":
           await article(this.env, message.itemId);
           break;
@@ -58,15 +58,21 @@ interface FeedRow {
   site_url: string | null;
 }
 
-async function discover(env: EngineEnv, feedId: number, now: number): Promise<void> {
+/** The ids of the items it inserted, in ascending order. */
+async function discover(
+  env: EngineEnv,
+  { feedId, manual }: Extract<EngineMessage, { type: "discover" }>,
+  now: number,
+): Promise<number[]> {
   const db = env.DB;
   const feed = await db
     .prepare(
-      "SELECT id, key, source, options, state, title, site_url FROM feed WHERE id = ? AND enabled = 1 AND archived_at IS NULL",
+      `SELECT id, key, source, options, state, title, site_url FROM feed
+       WHERE id = ?1 AND (enabled = 1 OR ?2) AND archived_at IS NULL`,
     )
-    .bind(feedId)
+    .bind(feedId, manual ? 1 : 0)
     .first<FeedRow>();
-  if (!feed) return;
+  if (!feed) return [];
 
   const source = getSource(feed.source);
   const options = parseOptions(source, feed.options === null ? undefined : JSON.parse(feed.options));
@@ -87,11 +93,11 @@ async function discover(env: EngineEnv, feedId: number, now: number): Promise<vo
     db.prepare("UPDATE feed SET last_fetched_at = ?, last_error = ? WHERE id = ?").bind(now, warning, feed.id),
   ]);
 
-  if (!source.fetchArticle) return;
   const inserted = results
     .slice(0, inserts.length)
     .flatMap((r) => r.results.map((row) => row.id))
     .sort((a, b) => a - b);
+  if (!source.fetchArticle) return inserted;
   await sendAll(
     env.QUEUE,
     inserted.map((itemId, i) => ({
@@ -99,6 +105,7 @@ async function discover(env: EngineEnv, feedId: number, now: number): Promise<vo
       delaySeconds: i * ARTICLE_STAGGER_SECONDS,
     })),
   );
+  return inserted;
 }
 
 // `crawled_at` must never decrease as `id` grows (the sync queries turn a time
