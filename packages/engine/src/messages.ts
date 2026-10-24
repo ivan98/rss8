@@ -10,6 +10,8 @@ export const MAX_RETRIES = 3;
 export const RETRY_DELAY_SECONDS = 600;
 /** The gap between consecutive article messages, so their fetches don't reach the origin at once. */
 export const ARTICLE_STAGGER_SECONDS = 2;
+/** Queues' limit on a message's `delaySeconds`. */
+export const MAX_DELAY_SECONDS = 86_400;
 /** Queues' limit on messages per `sendBatch`. */
 export const SEND_BATCH_LIMIT = 100;
 

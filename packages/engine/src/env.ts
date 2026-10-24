@@ -13,4 +13,6 @@ export interface EngineEnv {
   API_PASSWORD?: string;
   /** Signs the Google Reader tokens (secret, at least 32 characters). */
   AUTH_SECRET?: string;
+  /** Bearer token for the `/admin` routes (secret, at least 32 characters). Without it they answer 503. */
+  ADMIN_TOKEN?: string;
 }

@@ -71,7 +71,8 @@ async function hmacHex(secret: string, message: string): Promise<string> {
   return Array.from(signature, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function equal(a: string, b: string): boolean {
+/** Constant-time for equal lengths; a length mismatch returns early. */
+export function equal(a: string, b: string): boolean {
   const x = encoder.encode(a);
   const y = encoder.encode(b);
   return x.byteLength === y.byteLength && crypto.subtle.timingSafeEqual(x, y);

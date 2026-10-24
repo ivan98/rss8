@@ -1,3 +1,4 @@
+import { adminRoute } from "./admin";
 import type { Config } from "./config";
 import { syncConfig } from "./config-sync";
 import { consume } from "./consumer";
@@ -26,6 +27,8 @@ export function createWorker({ sources, config }: { sources: readonly AnySource[
       // Forwarded unread: the Worker has 10 ms of CPU, the object about 30 s.
       if (isGreaderPath(pathname)) return env.API.getByName("api").fetch(request);
       if (request.method === "GET" && pathname === "/health") return new Response("OK");
+      const admin = await adminRoute(request, env, { config, kinds });
+      if (admin) return admin;
       if (env.DEV_ROUTES === "1") {
         const response = await devCleanRoute(request, env);
         if (response) return response;
