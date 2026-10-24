@@ -1,7 +1,7 @@
 export { Api } from "./api";
 export { defineConfig, type Config, type FeedConfig, type Retention } from "./config";
 export { syncConfig } from "./config-sync";
-export { cronMatches, isDue, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
+export { assertTriggerFitsTimezone, cronMatches, isDue, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 export type { EngineEnv } from "./env";
 export { CONTENTS_CHUNK, isGreaderPath, longItemId, MAX_IDS, MAX_STREAM_ITEMS, parseItemId } from "./greader";
 export { parseFeed, type FeedEntry } from "./feed-scan";
@@ -23,4 +23,4 @@ export {
   type SourceContext,
 } from "./source";
 export { bindIdQuery, syncIdQueries, type IdQuery, type Page, type Since } from "./sync-queries";
-export { createWorker, MAINTENANCE_LOCAL_TIME, TICK_MINUTES } from "./worker";
+export { createWorker, MAINTENANCE_LOCAL_TIME } from "./worker";

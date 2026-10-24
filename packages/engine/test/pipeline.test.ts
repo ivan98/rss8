@@ -413,9 +413,13 @@ describe("cron dispatcher", () => {
     expect(sent.filter((m) => m.body.type === "discover")).toEqual([]);
   });
 
-  it("covers only the last 15 minutes on the first tick ever and records the tick", async () => {
-    expect(await enqueuedKeys("2026-10-25T08:30:00Z")).toEqual(["at25"]);
+  it("covers only its own minute on the first tick ever and records the tick", async () => {
+    expect(await enqueuedKeys("2026-10-25T08:30:00Z")).toEqual([]);
     expect(await metaValue("last_tick")).toBe(String(Date.parse("2026-10-25T08:30:00Z")));
+  });
+
+  it("is due on the first tick ever when the tick's own minute matches", async () => {
+    expect(await enqueuedKeys("2026-10-25T08:25:40Z")).toEqual(["at25"]);
   });
 
   it("catches up a skipped tick on the next one", async () => {
@@ -611,7 +615,7 @@ describe("cron dispatcher", () => {
       expect(onlyTickLine(logs)).toEqual({
         scheduledTime: at,
         lastTick: null,
-        after: at - 15 * 60_000,
+        after: at - 60_000,
         stale: false,
         feeds: 1,
         maintenance: true,

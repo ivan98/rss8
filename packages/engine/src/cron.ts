@@ -168,6 +168,32 @@ function shifted(localMs: number): LocalMinute {
   };
 }
 
+/**
+ * Throws unless the cron trigger `expression`, which Cloudflare runs in UTC,
+ * ticks on the same minutes in `timezone`. Feed schedules are evaluated in
+ * `timezone`, so a tick that lands off them (an hourly trigger in a +5:30 zone
+ * ticks at local :30) would run feeds late. The trigger may therefore restrict
+ * only the minute field, and its minutes must map onto themselves under every
+ * UTC offset the zone uses during the year of `atMs`.
+ */
+export function assertTriggerFitsTimezone(expression: string, timezone: string, atMs = Date.now()): void {
+  const { minute } = parseCron(expression);
+  if (expression.trim().split(/\s+/).slice(1).some((field) => field !== "*")) {
+    throw new Error(`Trigger "${expression}" may restrict only the minute field`);
+  }
+  const year = new Date(atMs).getUTCFullYear();
+  for (let month = 0; month < 12; month++) {
+    const offsetMinutes = offsetAt(timezone, Date.UTC(year, month, 1)) / MINUTE_MS;
+    const off = [...minute].filter((m) => !minute.has((((m + offsetMinutes) % 60) + 60) % 60));
+    if (off.length) {
+      const sign = offsetMinutes < 0 ? "-" : "+";
+      const abs = Math.abs(offsetMinutes);
+      const utc = `UTC${sign}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, "0")}`;
+      throw new Error(`Trigger "${expression}" ticks off its minutes in ${timezone} (${utc})`);
+    }
+  }
+}
+
 export function isDue(schedules: readonly CronSchedule[], window: readonly LocalMinute[]): boolean {
   return schedules.some((s) => window.some((t) => cronMatches(s, t)));
 }

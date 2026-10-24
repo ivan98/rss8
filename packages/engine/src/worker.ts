@@ -9,8 +9,6 @@ import { isGreaderPath } from "./greader";
 import { sendAll } from "./messages";
 import { parseOptions, registerDeployment, type AnySource } from "./source";
 
-/** The cron trigger's interval; the Wrangler trigger is `0,15,30,45 * * * *`. */
-export const TICK_MINUTES = 15;
 /** Maintenance runs once a local day, on the first tick at or after this time in `config.timezone`. */
 export const MAINTENANCE_LOCAL_TIME = { hour: 5, minute: 15 } as const;
 /** After a longer outage a feed only needs to run once to catch up. */
@@ -48,7 +46,8 @@ export function createWorker({ sources, config }: { sources: readonly AnySource[
         return;
       }
 
-      const after = Math.max(lastTick ?? tick - TICK_MINUTES * 60_000, tick - MAX_CATCH_UP_MS);
+      // The first tick ever covers only its own minute.
+      const after = Math.max(lastTick ?? tick - 60_000, tick - MAX_CATCH_UP_MS);
       const window = localMinutes(config.timezone, after, tick);
       const { results } = await env.DB.prepare(
         "SELECT id, key FROM feed WHERE enabled = 1 AND archived_at IS NULL",

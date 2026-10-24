@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cronMatches, isDue, localMinute, localMinutes, parseCron } from "../src/cron";
-import { TICK_MINUTES } from "../src/worker";
+import { assertTriggerFitsTimezone, cronMatches, isDue, localMinute, localMinutes, parseCron } from "../src/cron";
 
 const SGT = "Asia/Singapore";
+/** The interval of the simulated trigger, `0,15,30,45 * * * *`. */
+const TICK_MINUTES = 15;
 
 function dueAt(expressions: string[], utc: string, timezone = SGT): boolean {
   const tick = Date.parse(utc);
@@ -116,6 +117,35 @@ describe("schedules in Asia/Singapore (UTC+8)", () => {
       "2026-10-24T22:15",
       "2026-10-24T22:45",
     ]);
+  });
+});
+
+describe("assertTriggerFitsTimezone", () => {
+  const at = Date.parse("2026-10-25T00:00:00Z");
+
+  it.each([
+    ["0,15,30,45 * * * *", SGT],
+    ["*/15 * * * *", "Asia/Kolkata"],
+    ["*/15 * * * *", "Asia/Kathmandu"],
+    ["0,30 * * * *", "Australia/Lord_Howe"],
+    ["0 * * * *", SGT],
+    ["0 * * * *", "America/New_York"],
+    ["* * * * *", "Asia/Kathmandu"],
+  ])("accepts %s in %s", (expression, timezone) => {
+    expect(() => assertTriggerFitsTimezone(expression, timezone, at)).not.toThrow();
+  });
+
+  it.each([
+    ["0 * * * *", "Asia/Kolkata", /Asia\/Kolkata \(UTC\+5:30\)/],
+    ["0,30 * * * *", "Asia/Kathmandu", /UTC\+5:45/],
+    ["0 * * * *", "Australia/Lord_Howe", /UTC\+10:30|UTC\+11:00/],
+    ["0 * * * *", "America/St_Johns", /UTC-3:30|UTC-2:30/],
+  ])("rejects %s in %s", (expression, timezone, message) => {
+    expect(() => assertTriggerFitsTimezone(expression, timezone, at)).toThrow(message);
+  });
+
+  it.each(["0 0-12 * * *", "*/15 * * * 1-5", "0 */2 * * *"])("rejects %s, which restricts more than the minute", (expression) => {
+    expect(() => assertTriggerFitsTimezone(expression, SGT, at)).toThrow(/only the minute field/);
   });
 });
 
