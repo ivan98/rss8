@@ -1,4 +1,8 @@
-export type EngineMessage = { type: "discover"; feedId: number } | { type: "article"; itemId: number };
+export type EngineMessage =
+  | { type: "discover"; feedId: number }
+  | { type: "article"; itemId: number }
+  /** `date` is the local day it runs for; `now` is the cron tick, in epoch ms. */
+  | { type: "maintenance"; date: string; now: number };
 
 /** Must equal the consumer's `max_retries` in the Wrangler config. */
 export const MAX_RETRIES = 3;
@@ -11,6 +15,9 @@ export function parseMessage(body: unknown): EngineMessage | undefined {
   const m = body as Record<string, unknown>;
   if (m.type === "discover" && Number.isSafeInteger(m.feedId)) return { type: "discover", feedId: m.feedId as number };
   if (m.type === "article" && Number.isSafeInteger(m.itemId)) return { type: "article", itemId: m.itemId as number };
+  if (m.type === "maintenance" && typeof m.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(m.date)) {
+    if (Number.isSafeInteger(m.now)) return { type: "maintenance", date: m.date, now: m.now as number };
+  }
   return undefined;
 }
 

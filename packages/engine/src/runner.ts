@@ -1,8 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { discoverContext, sourceContext } from "./context";
 import type { EngineEnv } from "./env";
+import { runMaintenance } from "./maintenance";
 import { parseMessage, sendAll } from "./messages";
-import { getSource, parseOptions, type Candidate } from "./source";
+import { getConfig, getSource, parseOptions, type Candidate } from "./source";
 
 const KEEP_NEWEST = 100;
 const ARTICLE_STAGGER_SECONDS = 2;
@@ -10,8 +11,8 @@ const ARTICLE_STAGGER_SECONDS = 2;
 const INSERT_CHUNK_BYTES = 1024 * 1024;
 
 /**
- * One unit of work per request, called by the queue consumer: `/discover`
- * with `{ type: "discover", feedId }` or `/article` with `{ type: "article", itemId }`.
+ * One unit of work per request, called by the queue consumer with the message
+ * as the body, at `/<message type>`: `/discover`, `/article` or `/maintenance`.
  * Everything durable goes to D1; the object keeps nothing between requests.
  */
 export class Runner extends DurableObject<EngineEnv> {
@@ -20,8 +21,19 @@ export class Runner extends DurableObject<EngineEnv> {
     const path = new URL(request.url).pathname;
     if (!message || path !== `/${message.type}`) return new Response("Bad Request", { status: 400 });
     try {
-      if (message.type === "discover") await discover(this.env, message.feedId, Date.now());
-      else await article(this.env, message.itemId);
+      switch (message.type) {
+        case "discover":
+          await discover(this.env, message.feedId, Date.now());
+          break;
+        case "article":
+          await article(this.env, message.itemId);
+          break;
+        case "maintenance": {
+          const report = await runMaintenance(this.env.DB, getConfig(), message.now);
+          console.log("maintenance", JSON.stringify({ date: message.date, ...report }));
+          break;
+        }
+      }
       return new Response("OK");
     } catch (error) {
       return new Response(error instanceof Error ? error.message : String(error), { status: 500 });

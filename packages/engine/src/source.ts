@@ -1,3 +1,4 @@
+import type { Config } from "./config";
 import type { FeedEntry } from "./feed-scan";
 
 /** One item a source lists in `discover`. */
@@ -80,11 +81,14 @@ export function parseOptions(source: AnySource, raw: unknown): unknown {
 }
 
 // The Runner class is exported under a fixed name and built by the runtime, so
-// it can't receive the sources as arguments. `createWorker` registers them here
-// when the deployment module loads, before any object handles a request.
+// it can't receive the sources or the config as arguments. `createWorker`
+// registers them here when the deployment module loads, before any object
+// handles a request.
 const registry = new Map<string, AnySource>();
+let registeredConfig: Config | undefined;
 
-export function registerSources(sources: readonly AnySource[]): void {
+export function registerDeployment(sources: readonly AnySource[], config: Config): void {
+  registeredConfig = config;
   registry.clear();
   for (const source of sources) {
     if (registry.has(source.kind)) throw new Error(`Source kind "${source.kind}" is registered twice`);
@@ -96,4 +100,9 @@ export function getSource(kind: string): AnySource {
   const source = registry.get(kind);
   if (!source) throw new Error(`No source registered for kind "${kind}"`);
   return source;
+}
+
+export function getConfig(): Config {
+  if (!registeredConfig) throw new Error("No config registered");
+  return registeredConfig;
 }

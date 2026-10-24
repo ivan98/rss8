@@ -3,9 +3,8 @@ import { syncConfig } from "./config-sync";
 import { consume } from "./consumer";
 import { isDue, localMinute, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 import type { EngineEnv } from "./env";
-import { runMaintenance } from "./maintenance";
 import { sendAll } from "./messages";
-import { parseOptions, registerSources, type AnySource } from "./source";
+import { parseOptions, registerDeployment, type AnySource } from "./source";
 
 /** The cron trigger's interval; the Wrangler trigger is `0,15,30,45 * * * *`. */
 export const TICK_MINUTES = 15;
@@ -15,7 +14,7 @@ export const MAINTENANCE_LOCAL_TIME = { hour: 5, minute: 15 } as const;
 const MAX_CATCH_UP_MS = 24 * 3_600_000;
 
 export function createWorker({ sources, config }: { sources: readonly AnySource[]; config: Config }) {
-  registerSources(sources);
+  registerDeployment(sources, config);
   const schedules = feedSchedules(sources, config);
   const kinds = sources.map((s) => s.kind);
 
@@ -30,34 +29,53 @@ export function createWorker({ sources, config }: { sources: readonly AnySource[
       await syncConfig(env.DB, config, kinds);
       const tick = controller.scheduledTime;
       const { lastTick, maintenanceDate } = await readTickState(env.DB);
-      if (lastTick !== undefined && tick <= lastTick) return;
+      if (lastTick !== undefined && tick <= lastTick) {
+        logTick({ scheduledTime: tick, lastTick, after: null, stale: true, feeds: 0, maintenance: false });
+        return;
+      }
 
       const after = Math.max(lastTick ?? tick - TICK_MINUTES * 60_000, tick - MAX_CATCH_UP_MS);
       const window = localMinutes(config.timezone, after, tick);
       const { results } = await env.DB.prepare(
         "SELECT id, key FROM feed WHERE enabled = 1 AND archived_at IS NULL",
       ).all<{ id: number; key: string }>();
+      const due = results.filter((feed) => isDue(schedules.get(feed.key) ?? [], window));
       await sendAll(
         env.QUEUE,
-        results
-          .filter((feed) => isDue(schedules.get(feed.key) ?? [], window))
-          .map((feed) => ({ body: { type: "discover", feedId: feed.id } })),
+        due.map((feed) => ({ body: { type: "discover", feedId: feed.id } })),
       );
       await env.DB.prepare(STORE_LAST_TICK).bind(String(tick)).run();
 
       const now = localMinute(config.timezone, tick);
       const today = localDate(now);
-      if (today !== maintenanceDate && minuteOfDay(now) >= minuteOfDay(MAINTENANCE_LOCAL_TIME)) {
-        const report = await runMaintenance(env.DB, config, tick);
-        console.log("maintenance", JSON.stringify(report));
+      const maintenance = today !== maintenanceDate && minuteOfDay(now) >= minuteOfDay(MAINTENANCE_LOCAL_TIME);
+      if (maintenance) {
+        await env.QUEUE.send({ type: "maintenance", date: today, now: tick });
         await env.DB.prepare(STORE_MAINTENANCE_DATE).bind(today).run();
       }
+      logTick({ scheduledTime: tick, lastTick: lastTick ?? null, after, stale: false, feeds: due.length, maintenance });
     },
 
     async queue(batch: MessageBatch, env: EngineEnv): Promise<void> {
       await consume(batch, env);
     },
   } satisfies ExportedHandler<EngineEnv>;
+}
+
+interface TickLog {
+  scheduledTime: number;
+  lastTick: number | null;
+  /** Start of the window of local minutes checked; null on a stale tick. */
+  after: number | null;
+  stale: boolean;
+  /** Discover messages sent. */
+  feeds: number;
+  maintenance: boolean;
+}
+
+/** One line per tick, filterable in Workers Logs by its first argument. */
+function logTick(fields: TickLog): void {
+  console.log("tick", JSON.stringify(fields));
 }
 
 /** Checks every feed against its source when the deployment loads, so a bad config fails fast. */
