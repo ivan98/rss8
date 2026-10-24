@@ -3,6 +3,7 @@ export { defineConfig, type Config, type FeedConfig, type Retention } from "./co
 export { syncConfig } from "./config-sync";
 export { cronMatches, isDue, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 export type { EngineEnv } from "./env";
+export { CONTENTS_CHUNK, isGreaderPath, longItemId, MAX_IDS, MAX_STREAM_ITEMS, parseItemId } from "./greader";
 export { parseFeed, type FeedEntry } from "./feed-scan";
 export type { InspectFailure, InspectRequest, InspectResponse } from "./inspect";
 export { MAINTENANCE_LIMITS, runMaintenance, type MaintenanceLimits, type MaintenanceReport } from "./maintenance";

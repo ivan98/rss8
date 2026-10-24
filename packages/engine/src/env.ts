@@ -9,4 +9,8 @@ export interface EngineEnv {
   QUEUE: Queue<EngineMessage>;
   /** "1" turns on the `/dev` routes. Only the `inspect` tool and measurement Workers set it; production never does. */
   DEV_ROUTES?: string;
+  /** The Google Reader password (secret). Without it, and AUTH_SECRET, the API refuses every login. */
+  API_PASSWORD?: string;
+  /** Signs the Google Reader tokens (secret, at least 32 characters). */
+  AUTH_SECRET?: string;
 }

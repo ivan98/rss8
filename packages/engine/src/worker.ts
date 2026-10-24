@@ -4,6 +4,7 @@ import { consume } from "./consumer";
 import { isDue, localMinute, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 import type { EngineEnv } from "./env";
 import { devCleanRoute } from "./inspect";
+import { isGreaderPath } from "./greader";
 import { sendAll } from "./messages";
 import { parseOptions, registerDeployment, type AnySource } from "./source";
 
@@ -22,6 +23,8 @@ export function createWorker({ sources, config }: { sources: readonly AnySource[
   return {
     async fetch(request: Request, env: EngineEnv): Promise<Response> {
       const { pathname } = new URL(request.url);
+      // Forwarded unread: the Worker has 10 ms of CPU, the object about 30 s.
+      if (isGreaderPath(pathname)) return env.API.getByName("api").fetch(request);
       if (request.method === "GET" && pathname === "/health") return new Response("OK");
       if (env.DEV_ROUTES === "1") {
         const response = await devCleanRoute(request, env);
