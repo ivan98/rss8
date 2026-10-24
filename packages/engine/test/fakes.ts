@@ -48,6 +48,18 @@ export const articleSource = defineSource<FeedOptions>({
     if (!res.ok) throw new Error(`article HTTP ${res.status}`);
     return { content: await res.text() };
   },
+  inspect: {
+    async fetchPage(id, ctx) {
+      const res = await ctx.fetch(`https://example.com/article/${id}`);
+      if (!res.ok) throw new Error(`article HTTP ${res.status}`);
+      return res.text();
+    },
+    async process(page, stage) {
+      if (stage !== undefined && stage !== "trim") throw new Error(`Unknown stage "${stage}"`);
+      const content = stage === "trim" ? page.trim() : page.trim().toUpperCase();
+      return { content, details: { bytes: page.length } };
+    },
+  },
 });
 
 export function testConfig(feeds: Config["feeds"]): Config {

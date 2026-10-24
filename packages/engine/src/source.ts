@@ -56,6 +56,24 @@ export interface DiscoverContext<Options, State> extends SourceContext<Options> 
   state: { get(): State | undefined; set(value: State): void };
 }
 
+/** What one `inspect` run shows: the output and details for a person to read. */
+export interface InspectResult {
+  content: string;
+  /** Printed to stderr by the `inspect` tool, for example metadata, sizes and removal counts. */
+  details: Record<string, unknown>;
+}
+
+/**
+ * Debug hooks behind the `inspect` tool and its `/dev` route. They must run the
+ * same code as `fetchArticle`, split so a saved page can be processed offline.
+ */
+export interface Inspector<Options> {
+  /** Fetches the raw page of an item, given its id without the source prefix. */
+  fetchPage(id: string, ctx: SourceContext<Options>): Promise<string>;
+  /** Processes a raw page, stopping after `stage` when given. Unknown stages throw. */
+  process(page: string, stage?: string): Promise<InspectResult>;
+}
+
 export interface Source<Options = unknown, State = unknown> {
   apiVersion: 1;
   kind: string;
@@ -64,6 +82,7 @@ export interface Source<Options = unknown, State = unknown> {
   parseOptions?(raw: unknown): Options;
   discover(feed: Feed, ctx: DiscoverContext<Options, State>): Promise<Candidate[]>;
   fetchArticle?(candidate: Candidate, ctx: SourceContext<Options>): Promise<Article>;
+  inspect?: Inspector<Options>;
 }
 
 // `any`, not `unknown`: a Source<{ url: string }> must be assignable here, and

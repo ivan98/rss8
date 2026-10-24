@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { discoverContext, sourceContext } from "./context";
 import type { EngineEnv } from "./env";
+import { runInspect, type InspectRequest } from "./inspect";
 import { runMaintenance } from "./maintenance";
 import { parseMessage, sendAll } from "./messages";
 import { getConfig, getSource, parseOptions, type Candidate } from "./source";
@@ -14,9 +15,15 @@ const INSERT_CHUNK_BYTES = 1024 * 1024;
  * One unit of work per request, called by the queue consumer with the message
  * as the body, at `/<message type>`: `/discover`, `/article` or `/maintenance`.
  * Everything durable goes to D1; the object keeps nothing between requests.
+ * `/inspect` serves the `/dev/clean` route and writes nothing.
  */
 export class Runner extends DurableObject<EngineEnv> {
   override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === "/inspect") {
+      return runInspect((await request.json()) as InspectRequest).catch(
+        (error: unknown) => new Response(error instanceof Error ? error.message : String(error), { status: 500 }),
+      );
+    }
     const message = parseMessage(await request.json().catch(() => undefined));
     const path = new URL(request.url).pathname;
     if (!message || path !== `/${message.type}`) return new Response("Bad Request", { status: 400 });

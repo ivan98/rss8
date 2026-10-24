@@ -3,6 +3,7 @@ import { syncConfig } from "./config-sync";
 import { consume } from "./consumer";
 import { isDue, localMinute, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 import type { EngineEnv } from "./env";
+import { devCleanRoute } from "./inspect";
 import { sendAll } from "./messages";
 import { parseOptions, registerDeployment, type AnySource } from "./source";
 
@@ -19,9 +20,13 @@ export function createWorker({ sources, config }: { sources: readonly AnySource[
   const kinds = sources.map((s) => s.kind);
 
   return {
-    async fetch(request: Request): Promise<Response> {
+    async fetch(request: Request, env: EngineEnv): Promise<Response> {
       const { pathname } = new URL(request.url);
       if (request.method === "GET" && pathname === "/health") return new Response("OK");
+      if (env.DEV_ROUTES === "1") {
+        const response = await devCleanRoute(request, env);
+        if (response) return response;
+      }
       return new Response("Not Found", { status: 404 });
     },
 

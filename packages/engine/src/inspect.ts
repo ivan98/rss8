@@ -1,0 +1,55 @@
+import { sourceContext } from "./context";
+import type { EngineEnv } from "./env";
+import { getConfig, getSource, parseOptions, type InspectResult } from "./source";
+
+/** The body the Worker sends to a Runner object's `/inspect`. */
+export interface InspectRequest {
+  kind: string;
+  id: string;
+  stage?: string;
+  /** A saved page to process instead of fetching one. */
+  page?: string;
+  /** Return the fetched page too, so the caller can save it as a fixture. */
+  includePage?: boolean;
+}
+
+export interface InspectResponse extends InspectResult {
+  page?: string;
+}
+
+const ROUTE = /^\/dev\/clean\/([a-z0-9-]+)\/([^/]+)$/;
+
+/**
+ * `GET /dev/clean/<kind>/<id>` fetches and processes an item's page; `POST`
+ * processes the page in the body instead. Query: `stage`, and `page=1` to
+ * return the fetched page. The work runs in a Runner object, as in production.
+ * Undefined when the path isn't a `/dev/clean` route.
+ */
+export async function devCleanRoute(request: Request, env: EngineEnv): Promise<Response | undefined> {
+  const url = new URL(request.url);
+  const match = ROUTE.exec(url.pathname);
+  if (!match) return undefined;
+  const body: InspectRequest = { kind: match[1]!, id: decodeURIComponent(match[2]!) };
+  const stage = url.searchParams.get("stage");
+  if (stage) body.stage = stage;
+  if (request.method === "POST") body.page = await request.text();
+  else if (request.method !== "GET") return new Response("Method Not Allowed", { status: 405 });
+  if (url.searchParams.get("page") === "1") body.includePage = true;
+  return env.RUNNER.getByName(`inspect:${body.kind}`).fetch("https://runner/inspect", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Runs one inspect request inside a Runner object. */
+export async function runInspect(request: InspectRequest): Promise<Response> {
+  const source = getSource(request.kind);
+  if (!source.inspect) return new Response(`Source "${source.kind}" has no inspect hooks`, { status: 404 });
+  const feed = getConfig().feeds.find((f) => f.source === source.kind);
+  const options = feed ? parseOptions(source, feed.options) : undefined;
+  const page =
+    request.page ?? (await source.inspect.fetchPage(request.id, sourceContext(options, `inspect:${request.id}`)));
+  const result: InspectResponse = await source.inspect.process(page, request.stage);
+  if (request.includePage) result.page = page;
+  return Response.json(result);
+}
