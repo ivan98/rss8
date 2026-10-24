@@ -32,6 +32,11 @@ interface InspectResponse {
   page?: string;
 }
 
+interface InspectFailure {
+  error: string;
+  page?: string;
+}
+
 function fail(message: string): never {
   console.error(message);
   process.exit(1);
@@ -80,14 +85,15 @@ const init: RequestInit = flags.file ? { method: "POST", body: readFileSync(flag
 const started = performance.now();
 const res = flags.remote ? await callRemote(path, init) : await callLocal(path, init);
 const wallMs = Math.round(performance.now() - started);
-if (!res.ok) fail(`${path}: HTTP ${res.status}: ${res.text}`);
-const result = JSON.parse(res.text) as InspectResponse;
-
-if (flags["save-raw"]) {
-  if (result.page === undefined) fail("The Worker returned no page to save");
+// 422: the page was fetched (and is returned with --save-raw) but processing it failed.
+const body = res.ok || res.status === 422 ? (JSON.parse(res.text) as InspectResponse | InspectFailure) : undefined;
+if (flags["save-raw"] && body?.page !== undefined) {
   mkdirSync(dirname(flags["save-raw"]), { recursive: true });
-  writeFileSync(flags["save-raw"], result.page);
+  writeFileSync(flags["save-raw"], body.page);
+  console.error(`Saved the page to ${flags["save-raw"]}`);
 }
+if (!body || "error" in body) fail(`${path}: HTTP ${res.status}: ${body ? body.error : res.text}`);
+const result = body;
 const { page: _page, ...shown } = result;
 console.error(JSON.stringify({ kind, id, stage: stage ?? "all", ...shown.details, wallMs }, null, 2));
 console.error(`(wallMs is measured from this process and includes startup and network, not CPU)`);

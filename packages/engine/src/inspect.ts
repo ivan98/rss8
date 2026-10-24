@@ -17,6 +17,12 @@ export interface InspectResponse extends InspectResult {
   page?: string;
 }
 
+/** The 422 body when the page was fetched but processing it failed. */
+export interface InspectFailure {
+  error: string;
+  page?: string;
+}
+
 const ROUTE = /^\/dev\/clean\/([a-z0-9-]+)\/([^/]+)$/;
 
 /**
@@ -35,7 +41,9 @@ export async function devCleanRoute(request: Request, env: EngineEnv): Promise<R
   if (request.method === "POST") body.page = await request.text();
   else if (request.method !== "GET") return new Response("Method Not Allowed", { status: 405 });
   if (url.searchParams.get("page") === "1") body.includePage = true;
-  return env.RUNNER.getByName(`inspect:${body.kind}`).fetch("https://runner/inspect", {
+  // The query only labels the object's invocation in logs and tails.
+  const label = new URLSearchParams({ kind: body.kind, id: body.id, mode: body.page === undefined ? "fetch" : "page" });
+  return env.RUNNER.getByName(`inspect:${body.kind}`).fetch(`https://runner/inspect?${label}`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -49,7 +57,14 @@ export async function runInspect(request: InspectRequest): Promise<Response> {
   const options = feed ? parseOptions(source, feed.options) : undefined;
   const page =
     request.page ?? (await source.inspect.fetchPage(request.id, sourceContext(options, `inspect:${request.id}`)));
-  const result: InspectResponse = await source.inspect.process(page, request.stage);
-  if (request.includePage) result.page = page;
-  return Response.json(result);
+  try {
+    const result: InspectResponse = await source.inspect.process(page, request.stage);
+    if (request.includePage) result.page = page;
+    return Response.json(result);
+  } catch (error) {
+    // A page that fails to process is the one worth saving as a fixture.
+    const failure: InspectFailure = { error: error instanceof Error ? error.message : String(error) };
+    if (request.includePage) failure.page = page;
+    return Response.json(failure, { status: 422 });
+  }
 }

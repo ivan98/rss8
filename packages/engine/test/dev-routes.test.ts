@@ -35,8 +35,8 @@ describe("/dev/clean", () => {
 
   it("reports an unknown stage, an unknown kind and a source without hooks", async () => {
     const post = (path: string) => worker.fetch(new Request(`https://rss8.test${path}`, { method: "POST", body: "x" }), devEnv);
-    const stage = await post("/dev/clean/fake-article/7?stage=nope");
-    expect([stage.status, await stage.text()]).toEqual([500, 'Unknown stage "nope"']);
+    const stage = await post("/dev/clean/fake-article/7?stage=nope&page=1");
+    expect([stage.status, await stage.json()]).toEqual([422, { error: 'Unknown stage "nope"', page: "x" }]);
     const kind = await post("/dev/clean/nope/7");
     expect([kind.status, await kind.text()]).toEqual([500, 'No source registered for kind "nope"']);
     const hooks = await post("/dev/clean/fake-feed/7");
