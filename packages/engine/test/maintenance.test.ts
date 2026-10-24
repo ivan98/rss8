@@ -285,7 +285,11 @@ describe("tombstones", () => {
       bindIdQuery(db, syncIdQueries.unread, { limit: 100_000 }),
       bindIdQuery(db, syncIdQueries.starred, { limit: 100_000 }),
       bindIdQuery(db, syncIdQueries.readSince, { otSeconds: 0, limit: 100_000 }),
-      ...Object.values(FEEDS).map((feedId) => bindIdQuery(db, syncIdQueries.feed, { feedId, limit: 100_000 })),
+      ...Object.values(FEEDS).flatMap((feedId) =>
+        [syncIdQueries.feedSince, syncIdQueries.feedUnreadSince].map((query) =>
+          bindIdQuery(db, query, { feedId, otSeconds: 0, limit: 100_000 }),
+        ),
+      ),
     ];
     const returned = (await db.batch<{ id: number }>(pages)).flatMap((r) => r.results.map((row) => row.id));
     expect(returned.length).toBeGreaterThan(0);

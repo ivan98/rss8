@@ -116,12 +116,28 @@ const cases = [
       extra: () => LOOKUP + END,
     }),
   ),
-  caseOf({
-    name: "one feed",
-    query: syncIdQueries.feed,
-    params: { feedId: 2, limit: 100_000 },
-    expected: (r) => ok(r) && r.feed_id === 2,
-    extra: () => END,
+  // A folder runs these once per feed. ot 0 is a stream without `ot`.
+  ...[0, 7].flatMap((days) => {
+    const otSeconds = days === 0 ? 0 : daysAgo(days);
+    const since = days === 0 ? "" : ` since ${days} days ago`;
+    // Another feed's entries follow feed 2's in both indexes.
+    const extra = () => LOOKUP + END;
+    return [
+      caseOf({
+        name: `one feed${since}`,
+        query: syncIdQueries.feedSince,
+        params: { feedId: 2, otSeconds, limit: 100_000 },
+        expected: (r) => ok(r) && r.feed_id === 2 && crawledSince(otSeconds)(r),
+        extra,
+      }),
+      caseOf({
+        name: `one feed's unread${since}`,
+        query: syncIdQueries.feedUnreadSince,
+        params: { feedId: 2, otSeconds, limit: 100_000 },
+        expected: (r) => ok(r) && r.feed_id === 2 && r.is_read === 0 && crawledSince(otSeconds)(r),
+        extra,
+      }),
+    ];
   }),
 ];
 

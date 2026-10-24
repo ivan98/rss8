@@ -128,7 +128,7 @@ describe("mount and login", () => {
 });
 
 describe("subscriptions and tags", () => {
-  it("lists non-archived feeds with no categories", async () => {
+  it("lists non-archived feeds with no folder as having no categories", async () => {
     await seed([], [1, 2, 3]);
     await db.prepare("UPDATE feed SET archived_at = 1 WHERE id = 2").run();
     const client = await Client.login();
@@ -142,6 +142,119 @@ describe("subscriptions and tags", () => {
   it("lists only the starred tag", async () => {
     const client = await Client.login();
     expect(await (await client.get("tag/list", [["types", "1"]])).json()).toEqual({ tags: [{ id: STARRED }] });
+  });
+});
+
+// §6, Folders: one folder per feed, from the config, in config order.
+describe("folders", () => {
+  const NEWS = "user/-/label/News";
+  // In config order: feed 3 in News, feed 1 loose, feed 4 in Apple, feed 2 in
+  // News; feed 5 archived in Old. Item id's feed is 1 + id % 5.
+  const items = hourly(30, (id) => ({ feedId: 1 + (id % 5), read: id % 3 === 0 }));
+  const inNews = (id: number) => [2, 3].includes(1 + (id % 5));
+  const all = range(1, 30);
+  beforeEach(async () => {
+    await seed(items, [1, 2, 3, 4, 5]);
+    await db.batch(
+      [
+        [3, "News", 0],
+        [1, null, 1],
+        [4, "Apple", 2],
+        [2, "News", 3],
+        [5, "Old", 4],
+      ].map(([id, category, position]) =>
+        db.prepare("UPDATE feed SET category = ?2, position = ?3 WHERE id = ?1").bind(id, category, position),
+      ),
+    );
+    await db.prepare("UPDATE feed SET archived_at = 1 WHERE id = 5").run();
+  });
+
+  it("lists each feed's folder, keeping a folder's feeds together where its first feed stands", async () => {
+    const client = await Client.login();
+    const body = await (await client.get("subscription/list", [["output", "json"]])).json<{
+      subscriptions: { id: string; categories: unknown[] }[];
+    }>();
+    const news = [{ id: NEWS, label: "News" }];
+    expect(body.subscriptions.map((s) => [s.id, s.categories])).toEqual([
+      ["feed/3", news],
+      ["feed/2", news],
+      ["feed/1", []],
+      ["feed/4", [{ id: "user/-/label/Apple", label: "Apple" }]],
+    ]);
+  });
+
+  it("lists the folders of non-archived feeds after the starred tag, in config order", async () => {
+    const client = await Client.login();
+    expect(await (await client.get("tag/list", [["types", "1"]])).json()).toEqual({
+      tags: [{ id: STARRED }, { id: NEWS, type: "folder" }, { id: "user/-/label/Apple", type: "folder" }],
+    });
+  });
+
+  it("returns a folder's complete id sets across its feeds, for every xt and ot", async () => {
+    const client = await Client.login();
+    const n: [string, string] = ["n", "100000"];
+    const otSeconds = String(items[19]!.crawledAt / 1000);
+    const news = all.filter(inNews);
+    expect((await client.ids([n, ["s", NEWS]])).ids).toEqual(news);
+    expect((await client.ids([n, ["s", NEWS], ["xt", READ]])).ids).toEqual(news.filter((id) => id % 3 !== 0));
+    expect((await client.ids([n, ["s", NEWS], ["ot", otSeconds]])).ids).toEqual(news.filter((id) => id >= 20));
+    expect((await client.ids([n, ["s", NEWS], ["xt", READ], ["ot", otSeconds]])).ids).toEqual(
+      news.filter((id) => id >= 20 && id % 3 !== 0),
+    );
+    expect((await client.ids([n, ["s", "feed/4"], ["xt", READ]])).ids).toEqual(
+      all.filter((id) => id % 5 === 3 && id % 3 !== 0),
+    );
+    // Any user segment, and the folder of an archived feed or a renamed one is empty.
+    expect((await client.ids([n, ["s", "user/1/label/News"]])).ids).toEqual(news);
+    expect((await client.ids([n, ["s", "user/-/label/Old"]])).ids).toEqual([]);
+    expect((await client.ids([n, ["s", "user/-/label/news"]])).ids).toEqual([]);
+  });
+
+  it("pages a folder with c into the same set", async () => {
+    const client = await Client.login();
+    const pages: number[][] = [];
+    let c: string | undefined;
+    do {
+      const page = await client.ids([["n", "5"], ["s", NEWS], ...(c ? [["c", c] as [string, string]] : [])]);
+      pages.push(page.ids);
+      c = page.continuation;
+    } while (c);
+    expect(pages.map((p) => p.length)).toEqual([5, 5, 2]);
+    expect(pages.flat()).toEqual(all.filter(inNews));
+  });
+
+  it("serves a folder through stream/contents, and labels each item with its feed's folder", async () => {
+    const client = await Client.login();
+    const res = await client.get(`stream/contents/${encodeURIComponent(NEWS)}`, [["n", "3"]]);
+    const body = await res.json<{ id: string; items: { id: string; categories: string[] }[] }>();
+    expect(body.id).toBe(NEWS);
+    expect(body.items.map((i) => [parseItemId(i.id), i.categories])).toEqual([
+      [27, [READING_LIST, READ, NEWS]],
+      [26, [READING_LIST, NEWS]],
+      [22, [READING_LIST, NEWS]],
+    ]);
+    const loose = await client.contents(["30"]);
+    expect(loose[0]!.categories).toEqual([READING_LIST, READ]);
+  });
+
+  it("counts a folder's unread items over its feeds", async () => {
+    const client = await Client.login();
+    const body = await (await client.get("unread-count")).json<{ unreadcounts: { id: string; count: number }[] }>();
+    const unread = all.filter((id) => id % 3 !== 0);
+    expect(body.unreadcounts.find((c) => c.id === NEWS)).toEqual({
+      id: NEWS,
+      count: unread.filter(inNews).length,
+      newestItemTimestampUsec: String(items[25]!.crawledAt * 1000),
+    });
+    expect(body.unreadcounts.map((c) => c.id)).not.toContain("user/-/label/Old");
+  });
+
+  it("marks a folder read up to ts, and only its feeds", async () => {
+    const client = await Client.login();
+    const res = await client.post("mark-all-as-read", [["s", NEWS], ["ts", String(items[19]!.crawledAt * 1000)]]);
+    expect(res.status).toBe(200);
+    const read = (await state()).read;
+    expect(read).toEqual(all.filter((id) => id % 3 === 0 || (inNews(id) && id <= 20)).reverse());
   });
 });
 
@@ -199,7 +312,7 @@ describe("rule: complete id sets", () => {
       [["s", STARRED], ["ot", "1"]],
       [["s", READING_LIST], ["xt", STARRED]],
       [["s", READING_LIST], ["nt", "1"]],
-      [["s", "user/-/label/News"]],
+      [["s", "user/-/label/News/Sub"]],
       [["s", READING_LIST], ["c", "abc"]],
       [["s", READING_LIST], ["n", "0"]],
     ] as [string, string][][]) {

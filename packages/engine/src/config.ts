@@ -4,6 +4,8 @@ export interface FeedConfig {
   enabled: boolean;
   title?: string;
   siteUrl?: string;
+  /** The folder clients show the feed in; none when absent. Feeds keep their config order within it. */
+  category?: string;
   options?: unknown;
   /** 5-field cron expressions, evaluated in `Config.timezone`. Defaults to the source's `defaultSchedule`. */
   schedule?: string[];

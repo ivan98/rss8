@@ -4,7 +4,7 @@
 -- starred, and a 5.6 KB body each (about 50 MB in total).
 --
 -- Only for an empty, throwaway database. Never run it against production.
--- 54,008 rows written, measured locally: each item also writes its index entries.
+-- 55,508 rows written, measured locally: each item also writes its index entries.
 
 INSERT INTO feed (id, key, source, title, site_url, feed_url) VALUES
   (1, 'bench-1', 'bench', 'Bench feed 1', 'https://example.com/1', 'https://example.com/1/feed'),

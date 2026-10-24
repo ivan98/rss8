@@ -23,6 +23,9 @@ const READ = "user/-/state/com.google/read";
 const STARRED = "user/-/state/com.google/starred";
 const LONG_ID_PREFIX = "tag:google.com,2005:reader/item/";
 
+/** A folder's stream id. Config validation keeps `/` out of folder names. */
+const label = (name: string) => `user/-/label/${name}`;
+
 /** The most ids one `stream/items/ids` page returns; Unread asks for 100,000. */
 export const MAX_IDS = 100_000;
 /** The most items one `stream/contents` page returns. */
@@ -30,11 +33,16 @@ export const MAX_STREAM_ITEMS = 1_000;
 /** Ids per D1 query while `stream/items/contents` streams its answer. */
 export const CONTENTS_CHUNK = 250;
 
-type Stream = { kind: "reading-list" | "starred" | "read" } | { kind: "feed"; feedId: number };
+type Stream =
+  | { kind: "reading-list" | "starred" | "read" }
+  | { kind: "feed"; feedId: number }
+  | { kind: "label"; name: string };
 
 function parseStream(s: string): Stream | undefined {
   const state = /^user\/[^/]+\/state\/com\.google\/(reading-list|starred|read)$/.exec(s)?.[1];
   if (state === "reading-list" || state === "starred" || state === "read") return { kind: state };
+  const name = /^user\/[^/]+\/label\/([^/]+)$/.exec(s)?.[1];
+  if (name !== undefined) return { kind: "label", name };
   const feedId = /^feed\/([1-9]\d{0,15})$/.exec(s)?.[1];
   return feedId ? { kind: "feed", feedId: Number(feedId) } : undefined;
 }
@@ -75,8 +83,14 @@ class Meter {
   }
 
   async batch(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
-    if (statements.length === 0) return;
-    for (const result of await db.batch(statements)) this.add(result.meta);
+    await this.batchAll(db, statements);
+  }
+
+  async batchAll<T>(db: D1Database, statements: D1PreparedStatement[]): Promise<T[][]> {
+    if (statements.length === 0) return [];
+    const results = await db.batch<T>(statements);
+    for (const result of results) this.add(result.meta);
+    return results.map((r) => r.results);
   }
 }
 
@@ -151,14 +165,12 @@ const ROUTES: Record<string, Handler> = {
   },
 
   async "subscription/list"(call) {
-    const feeds = await call.meter.all<{ id: number; title: string; site_url: string | null; feed_url: string | null; icon_url: string | null }>(
-      call.db.prepare("SELECT id, title, site_url, feed_url, icon_url FROM feed WHERE archived_at IS NULL ORDER BY id"),
-    );
+    const feeds = await listFeeds(call);
     call.count = feeds.length;
     const subscriptions = feeds.map((f) => ({
       id: `feed/${f.id}`,
       title: f.title,
-      categories: [],
+      categories: f.category === null ? [] : [{ id: label(f.category), label: f.category }],
       url: f.feed_url ?? f.site_url ?? "",
       htmlUrl: f.site_url ?? "",
       iconUrl: f.icon_url ?? "",
@@ -166,12 +178,14 @@ const ROUTES: Record<string, Handler> = {
     return json(JSON.stringify({ subscriptions }));
   },
 
-  async "tag/list"() {
-    return json(JSON.stringify({ tags: [{ id: STARRED }] }));
+  async "tag/list"(call) {
+    const folders = new Set((await listFeeds(call)).flatMap((f) => (f.category === null ? [] : [f.category])));
+    const tags = [{ id: STARRED }, ...[...folders].map((name) => ({ id: label(name), type: "folder" }))];
+    return json(JSON.stringify({ tags }));
   },
 
   async "stream/items/ids"(call) {
-    const select = idSelection(call);
+    const select = await idSelection(call);
     const n = pageSize(call.params, 20, MAX_IDS);
     const before = continuation(call.params);
     if (!select || n === undefined || before === null) return badRequest();
@@ -198,6 +212,7 @@ const ROUTES: Record<string, Handler> = {
       [call.params.getAll("r"), 0],
     ] as const) {
       for (const tag of tags) {
+        // Folder labels are ignored: articles carry no labels of their own.
         const kind = parseStream(tag)?.kind;
         const sql = kind === "read" ? SET_READ : kind === "starred" ? SET_STARRED : undefined;
         if (sql) statements.push(call.db.prepare(sql).bind(ids, value));
@@ -216,6 +231,13 @@ const ROUTES: Record<string, Handler> = {
       const feed = feeds.get(feed_id) ?? { count: 0, newest: 0 };
       feeds.set(feed_id, { count: feed.count + 1, newest: Math.max(feed.newest, id) });
     }
+    const folders = new Map<string, { count: number; newest: number }>();
+    for (const { id, category } of await call.meter.all<{ id: number; category: string }>(call.db.prepare(FOLDER_FEEDS))) {
+      const feed = feeds.get(id);
+      if (!feed) continue;
+      const folder = folders.get(category) ?? { count: 0, newest: 0 };
+      folders.set(category, { count: folder.count + feed.count, newest: Math.max(folder.newest, feed.newest) });
+    }
     const newestIds = [...feeds.values()].map((f) => f.newest);
     const crawled = new Map(
       (await call.meter.all<{ id: number; crawled_at: number }>(
@@ -226,6 +248,7 @@ const ROUTES: Record<string, Handler> = {
     const counts = [...feeds]
       .sort(([a], [b]) => a - b)
       .map(([feedId, f]) => ({ id: `feed/${feedId}`, count: f.count, newestItemTimestampUsec: usec(f.newest) }));
+    for (const [name, f] of folders) counts.push({ id: label(name), count: f.count, newestItemTimestampUsec: usec(f.newest) });
     const newest = Math.max(0, ...newestIds);
     counts.push({ id: READING_LIST, count: unread.length, newestItemTimestampUsec: usec(newest) });
     call.count = unread.length;
@@ -239,8 +262,9 @@ const ROUTES: Record<string, Handler> = {
     if (tsMs === undefined) return badRequest();
     if (stream?.kind === "reading-list") {
       await call.meter.batch(call.db, [call.db.prepare(MARK_ALL_READ).bind(tsMs)]);
-    } else if (stream?.kind === "feed") {
-      await call.meter.batch(call.db, [call.db.prepare(MARK_FEED_READ).bind(tsMs, stream.feedId)]);
+    } else if (stream?.kind === "feed" || stream?.kind === "label") {
+      const feedIds = stream.kind === "feed" ? [stream.feedId] : await folderFeedIds(call, stream.name);
+      await call.meter.batch(call.db, feedIds.map((feedId) => call.db.prepare(MARK_FEED_READ).bind(tsMs, feedId)));
     } else {
       return badRequest();
     }
@@ -248,8 +272,47 @@ const ROUTES: Record<string, Handler> = {
   },
 };
 
+interface SubscriptionRow {
+  id: number;
+  title: string;
+  site_url: string | null;
+  feed_url: string | null;
+  icon_url: string | null;
+  category: string | null;
+  position: number | null;
+}
+
+/** Non-archived feeds in config order, with each folder's feeds moved up to where its first feed stands. */
+async function listFeeds(call: Call): Promise<SubscriptionRow[]> {
+  // Sorted here: ORDER BY reads every feed row twice.
+  const feeds = (
+    await call.meter.all<SubscriptionRow>(
+      call.db.prepare(
+        "SELECT id, title, site_url, feed_url, icon_url, category, position FROM feed WHERE archived_at IS NULL",
+      ),
+    )
+  ).sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || a.id - b.id);
+  const folderAt = new Map<string, number>();
+  feeds.forEach((f, i) => {
+    if (f.category !== null && !folderAt.has(f.category)) folderAt.set(f.category, i);
+  });
+  const at = (f: SubscriptionRow, i: number) => (f.category === null ? i : folderAt.get(f.category)!);
+  return feeds
+    .map((f, i) => ({ f, i, at: at(f, i) }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map(({ f }) => f);
+}
+
+/** A folder's non-archived feeds; none for a folder no feed names any more. */
+async function folderFeedIds(call: Call, name: string): Promise<number[]> {
+  const rows = await call.meter.all<{ id: number }>(
+    call.db.prepare("SELECT id FROM feed WHERE category = ?1 AND archived_at IS NULL").bind(name),
+  );
+  return rows.map((r) => r.id);
+}
+
 async function streamContents(call: Call): Promise<Response> {
-  const select = idSelection(call);
+  const select = await idSelection(call);
   const n = pageSize(call.params, 20, MAX_STREAM_ITEMS);
   const before = continuation(call.params);
   if (!select || n === undefined || before === null) return badRequest();
@@ -260,14 +323,16 @@ async function streamContents(call: Call): Promise<Response> {
   return streamItems(call, "stream/contents", ids, head);
 }
 
-type IdStatement = (page: Page) => D1PreparedStatement;
+/** One statement, or one per feed of a folder, whose results merge into a page. */
+type IdStatements = (page: Page) => D1PreparedStatement[];
 
 /**
- * Maps `s`, `xt` and `ot` onto one of the indexed id queries. A combination
- * with no query is refused rather than answered with a wrong set: a client
- * that gets an incomplete unread set marks the rest read.
+ * Maps `s`, `xt` and `ot` onto the indexed id queries. A combination with no
+ * query is refused rather than answered with a wrong set: a client that gets
+ * an incomplete unread set marks the rest read.
  */
-function idSelection({ db, params }: Call): IdStatement | undefined {
+async function idSelection(call: Call): Promise<IdStatements | undefined> {
+  const { db, params } = call;
   const stream = parseStream(params.get("s") || READING_LIST);
   const xt = params.get("xt");
   const ot = params.get("ot");
@@ -277,9 +342,8 @@ function idSelection({ db, params }: Call): IdStatement | undefined {
   if (Number.isNaN(otSeconds)) return undefined;
 
   const bind =
-    <P extends Page>(query: IdQuery<P>, fixed: Omit<P, keyof Page>): IdStatement =>
-    (page) =>
-      bindIdQuery(db, query, { ...fixed, ...page } as P);
+    <P extends Page>(query: IdQuery<P>, fixed: Omit<P, keyof Page>): IdStatements =>
+    (page) => [bindIdQuery(db, query, { ...fixed, ...page } as P)];
   const excludeRead = xt !== null;
   switch (stream.kind) {
     case "reading-list":
@@ -290,13 +354,21 @@ function idSelection({ db, params }: Call): IdStatement | undefined {
     case "starred":
       return excludeRead || otSeconds !== undefined ? undefined : bind(syncIdQueries.starred, {});
     case "feed":
-      return excludeRead || otSeconds !== undefined ? undefined : bind(syncIdQueries.feed, { feedId: stream.feedId });
+    case "label": {
+      // Neither client was seen asking for these, so every combination is
+      // answered (design §6, Folders). Each feed's query reads at most n + 1 rows.
+      const feedIds = stream.kind === "feed" ? [stream.feedId] : await folderFeedIds(call, stream.name);
+      const query = excludeRead ? syncIdQueries.feedUnreadSince : syncIdQueries.feedSince;
+      return (page) => feedIds.map((feedId) => bindIdQuery(db, query, { feedId, otSeconds: otSeconds ?? 0, ...page }));
+    }
   }
 }
 
 /** One page, newest first. Asks for one id more than `n` to know whether another page follows. */
-async function idPage(call: Call, select: IdStatement, n: number, before: number | undefined) {
-  const rows = await call.meter.all<{ id: number }>(select({ before, limit: n + 1 }));
+async function idPage(call: Call, select: IdStatements, n: number, before: number | undefined) {
+  const results = await call.meter.batchAll<{ id: number }>(call.db, select({ before, limit: n + 1 }));
+  // Feeds' ids interleave; a single statement is already in order.
+  const rows = results.length === 1 ? results[0]! : results.flat().sort((a, b) => b.id - a.id);
   const ids = rows.slice(0, n).map((r) => r.id);
   return { ids, next: rows.length > n ? ids.at(-1) : undefined };
 }
@@ -343,6 +415,7 @@ interface FeedRow {
   id: number;
   title: string;
   site_url: string | null;
+  category: string | null;
 }
 
 /**
@@ -360,7 +433,7 @@ function streamItems(call: Call, route: string, ids: number[], head: string): Re
 
   const produce = async () => {
     const feeds = new Map(
-      (await call.meter.all<FeedRow>(call.db.prepare("SELECT id, title, site_url FROM feed"))).map((f) => [f.id, f]),
+      (await call.meter.all<FeedRow>(call.db.prepare("SELECT id, title, site_url, category FROM feed"))).map((f) => [f.id, f]),
     );
     await write(`${head}"items":[`);
     let count = 0;
@@ -388,6 +461,7 @@ function renderItem(row: ItemRow, feed: FeedRow | undefined): string {
   const categories = [READING_LIST];
   if (row.is_read) categories.push(READ);
   if (row.is_starred) categories.push(STARRED);
+  if (feed?.category) categories.push(label(feed.category));
   const published = row.published_at ?? Math.floor(row.crawled_at / 1000);
   const link = row.url ? [{ href: row.url, type: "text/html" }] : [];
   return JSON.stringify({
@@ -431,6 +505,7 @@ export const MARK_FEED_READ = `UPDATE item SET is_read = 1 WHERE status = 'ok' A
 // The unread set itself, one row read per unread item, counted per feed in JS:
 // GROUP BY in SQL needs a temporary B-tree that doubles the rows read.
 export const UNREAD_BY_FEED = "SELECT id, feed_id FROM item WHERE status = 'ok' AND is_read = 0";
+const FOLDER_FEEDS = "SELECT id, category FROM feed WHERE category IS NOT NULL AND archived_at IS NULL";
 const CRAWLED_AT = "SELECT i.id, i.crawled_at FROM json_each(?1) AS j JOIN item AS i ON i.id = j.value";
 
 function safeDecode(s: string): string | undefined {

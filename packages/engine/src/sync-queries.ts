@@ -24,10 +24,11 @@ export interface IdQuery<P> {
 
 const FIRST_PAGE = Number.MAX_SAFE_INTEGER;
 
-// The first id crawled at or after ?1 seconds. Turning `ot` into an id bound
-// keeps the list query a range on the primary key or on item_unread; filtering
+// The first id crawled at or after `ot` seconds. Turning `ot` into an id bound
+// keeps the list query a range on the primary key or on an index; filtering
 // on crawled_at directly would scan.
-const ID_SINCE = "(SELECT id FROM item WHERE crawled_at >= ?1 * 1000 ORDER BY crawled_at LIMIT 1)";
+const idSince = (ot: string) => `(SELECT id FROM item WHERE crawled_at >= ${ot} * 1000 ORDER BY crawled_at LIMIT 1)`;
+const ID_SINCE = idSince("?1");
 
 export const syncIdQueries = {
   readingListSince: {
@@ -46,9 +47,16 @@ export const syncIdQueries = {
     sql: `SELECT id FROM item WHERE status = 'ok' AND is_read = 1 AND id >= ${ID_SINCE} AND id < ?2 ORDER BY id DESC LIMIT ?3`,
     params: (p: Page & Since) => [p.otSeconds, p.before ?? FIRST_PAGE, p.limit],
   },
-  feed: {
-    sql: "SELECT id FROM item WHERE status = 'ok' AND feed_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3",
-    params: (p: Page & { feedId: number }) => [p.feedId, p.before ?? FIRST_PAGE, p.limit],
+  // A feed's stream, and a folder's read one feed at a time.
+  feedSince: {
+    sql: `SELECT id FROM item WHERE status = 'ok' AND feed_id = ?1 AND id >= ${idSince("?2")} AND id < ?3
+          ORDER BY id DESC LIMIT ?4`,
+    params: (p: Page & Since & { feedId: number }) => [p.feedId, p.otSeconds, p.before ?? FIRST_PAGE, p.limit],
+  },
+  feedUnreadSince: {
+    sql: `SELECT id FROM item WHERE status = 'ok' AND is_read = 0 AND feed_id = ?1 AND id >= ${idSince("?2")} AND id < ?3
+          ORDER BY id DESC LIMIT ?4`,
+    params: (p: Page & Since & { feedId: number }) => [p.feedId, p.otSeconds, p.before ?? FIRST_PAGE, p.limit],
   },
 } satisfies Record<string, IdQuery<never>>;
 

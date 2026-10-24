@@ -31,7 +31,7 @@ beforeAll(async () => {
   expect(results.reduce((sum, r) => sum + r.meta.rows_written, 0)).toBe(SEED_ROWS_WRITTEN);
 });
 
-const SEED_ROWS_WRITTEN = 54_008;
+const SEED_ROWS_WRITTEN = 55_508;
 
 let log: MockInstance<typeof console.log> | undefined;
 function capture(): () => LogLine[] {
@@ -59,7 +59,8 @@ describe("at 9,000 items", () => {
     expect(starred.ids).toHaveLength(53);
     expect(lines().map((l) => [l.route, l.count, l.rowsRead])).toEqual([
       ["subscription/list", 4, 4],
-      ["tag/list", null, 0],
+      // The feeds, for their folders.
+      ["tag/list", null, 4],
       // The ot lookup, plus one entry past the range unless it runs to the first item.
       ["stream/items/ids", all.ids.length, all.ids.length + 1 + (all.ids.length < 9_000 ? 1 : 0)],
       ["stream/items/ids", 1_500, 1_500],
@@ -101,7 +102,29 @@ describe("at 9,000 items", () => {
     const lines = capture();
     const body = await (await client.get("unread-count")).json<{ max: number }>();
     expect(body.max).toBe(1_500);
-    // The unread set and its end, then one json_each entry and one item per feed.
-    expect(lines().map((l) => l.rowsRead)).toEqual([1_500 + 1 + 2 * 4]);
+    // The unread set and its end, the feeds for their folders, then one
+    // json_each entry and one item per feed.
+    expect(lines().map((l) => l.rowsRead)).toEqual([1_500 + 1 + 4 + 2 * 4]);
+  });
+
+  it("reads a folder's id sets at about one row per returned id", async () => {
+    await db.prepare("UPDATE feed SET category = 'News' WHERE id <= 2").run();
+    try {
+      const client = await Client.login();
+      const lines = capture();
+      const unread = await client.ids([n, ["s", "user/-/label/News"], ["xt", READ]]);
+      const all = await client.ids([n, ["s", "user/-/label/News"]]);
+
+      expect(unread.ids).toHaveLength(750);
+      expect(all.ids).toHaveLength(4_500);
+      // The feeds to find the folder's, then per feed the ot lookup, its ids
+      // and one entry past its range (none for feed 1, whose range starts the index).
+      expect(lines().map((l) => [l.count, l.rowsRead])).toEqual([
+        [750, 4 + 750 + 3],
+        [4_500, 4 + 4_500 + 3],
+      ]);
+    } finally {
+      await db.prepare("UPDATE feed SET category = NULL").run();
+    }
   });
 });

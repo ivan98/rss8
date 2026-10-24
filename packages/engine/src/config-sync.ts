@@ -15,7 +15,7 @@ export async function syncConfig(
 
   const now = Date.now();
   await db.batch([
-    ...config.feeds.map((feed) =>
+    ...config.feeds.map((feed, position) =>
       db.prepare(UPSERT_FEED).bind(
         feed.key,
         feed.source,
@@ -23,6 +23,8 @@ export async function syncConfig(
         feed.enabled ? 1 : 0,
         feed.title ?? feed.key,
         feed.siteUrl ?? null,
+        feed.category ?? null,
+        position,
       ),
     ),
     db.prepare(ARCHIVE_REMOVED).bind(now, JSON.stringify(config.feeds.map((feed) => feed.key))),
@@ -31,8 +33,8 @@ export async function syncConfig(
 }
 
 const UPSERT_FEED = `
-INSERT INTO feed (key, source, options, enabled, title, site_url, archived_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
+INSERT INTO feed (key, source, options, enabled, title, site_url, category, position, archived_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)
 ON CONFLICT(key) DO UPDATE SET
   state = CASE WHEN feed.source = excluded.source THEN feed.state ELSE NULL END,
   source = excluded.source,
@@ -40,6 +42,8 @@ ON CONFLICT(key) DO UPDATE SET
   enabled = excluded.enabled,
   title = excluded.title,
   site_url = excluded.site_url,
+  category = excluded.category,
+  position = excluded.position,
   archived_at = NULL`;
 
 const ARCHIVE_REMOVED = `
@@ -58,6 +62,11 @@ function assertValidConfig(config: Config, sourceKinds: readonly string[]): void
     seen.add(feed.key);
     if (!known.has(feed.source)) {
       throw new Error(`Feed "${feed.key}" uses unknown source "${feed.source}"`);
+    }
+    const { category } = feed;
+    // The name is part of the stream id user/-/label/<name>.
+    if (category !== undefined && (category !== category.trim() || !/^[^/]{1,64}$/.test(category))) {
+      throw new Error(`Feed "${feed.key}" has category "${category}"; use 1 to 64 characters, no "/", no outer spaces`);
     }
   }
 }

@@ -216,4 +216,28 @@ describe("syncConfig", () => {
 
     await expect(syncConfig(db, config(feedA), ["other"])).rejects.toThrow(/unknown source/);
   });
+
+  it("stores each feed's folder and config position, and follows a move or reorder", async () => {
+    const folders = async () =>
+      (await db.prepare("SELECT key, category, position FROM feed ORDER BY key").all()).results;
+    await syncConfig(db, config({ ...feedA, category: "News" }, feedB), KINDS);
+    expect(await folders()).toEqual([
+      { key: "feed-a", category: "News", position: 0 },
+      { key: "feed-b", category: null, position: 1 },
+    ]);
+
+    await syncConfig(db, config({ ...feedB, category: "Apple" }, feedA), KINDS);
+    expect(await folders()).toEqual([
+      { key: "feed-a", category: null, position: 1 },
+      { key: "feed-b", category: "Apple", position: 0 },
+    ]);
+  });
+
+  it("rejects a folder name that can't be a stream id, and writes nothing", async () => {
+    for (const category of ["", " News", "News ", "News/Local", "x".repeat(65)]) {
+      await expect(syncConfig(db, config({ ...feedA, category }), KINDS)).rejects.toThrow(/category/);
+    }
+    expect(await feeds()).toEqual([]);
+    await syncConfig(db, config({ ...feedA, category: "x".repeat(64) }), KINDS);
+  });
 });
