@@ -79,6 +79,7 @@ const expectedFile = join(flags["expected-dir"] ?? join("sources", kind, "golden
 const query = new URLSearchParams();
 if (stage) query.set("stage", stage);
 if (flags["save-raw"]) query.set("page", "1");
+query.set("report", "1");
 const path = `/${flags.remote ? "admin" : "dev"}/clean/${kind}/${encodeURIComponent(id)}?${query}`;
 const init: RequestInit = flags.file ? { method: "POST", body: readFileSync(flags.file, "utf8") } : {};
 

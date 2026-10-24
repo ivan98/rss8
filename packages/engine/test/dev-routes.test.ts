@@ -33,6 +33,13 @@ describe("/dev/clean", () => {
     expect(requests).toEqual([]);
   });
 
+  it("adds the source's extra diagnostics only when asked", async () => {
+    const post = (query: string) =>
+      worker.fetch(new Request(`https://rss8.test/dev/clean/fake-article/7${query}`, { method: "POST", body: "a b" }), devEnv);
+    expect(((await (await post("")).json()) as { details: object }).details).toEqual({ bytes: 3 });
+    expect(((await (await post("?report=1")).json()) as { details: object }).details).toEqual({ bytes: 3, words: 2 });
+  });
+
   it("reports an unknown stage, an unknown kind and a source without hooks", async () => {
     const post = (path: string) => worker.fetch(new Request(`https://rss8.test${path}`, { method: "POST", body: "x" }), devEnv);
     const stage = await post("/dev/clean/fake-article/7?stage=nope&page=1");

@@ -17,6 +17,7 @@ export {
   type FeedFetch,
   type InspectResult,
   type Inspector,
+  type ProcessOptions,
   type Source,
   type SourceContext,
 } from "./source";

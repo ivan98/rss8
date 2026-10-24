@@ -54,10 +54,10 @@ export const articleSource = defineSource<FeedOptions>({
       if (!res.ok) throw new Error(`article HTTP ${res.status}`);
       return res.text();
     },
-    async process(page, stage) {
+    async process(page, { stage, report } = {}) {
       if (stage !== undefined && stage !== "trim") throw new Error(`Unknown stage "${stage}"`);
       const content = stage === "trim" ? page.trim() : page.trim().toUpperCase();
-      return { content, details: { bytes: page.length } };
+      return { content, details: report ? { bytes: page.length, words: content.split(/\s+/).length } : { bytes: page.length } };
     },
   },
 });

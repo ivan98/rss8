@@ -1,6 +1,6 @@
 import { sourceContext } from "./context";
 import type { EngineEnv } from "./env";
-import { getConfig, getSource, parseOptions, type InspectResult } from "./source";
+import { getConfig, getSource, parseOptions, type InspectResult, type ProcessOptions } from "./source";
 
 /** The body the Worker sends to a Runner object's `/inspect`. */
 export interface InspectRequest {
@@ -11,6 +11,8 @@ export interface InspectRequest {
   page?: string;
   /** Return the fetched page too, so the caller can save it as a fixture. */
   includePage?: boolean;
+  /** Ask the source for diagnostics that cost extra work. */
+  report?: boolean;
 }
 
 export interface InspectResponse extends InspectResult {
@@ -27,8 +29,10 @@ const ROUTE = /^\/dev\/clean\/([a-z0-9-]+)\/([^/]+)$/;
 
 /**
  * `GET /dev/clean/<kind>/<id>` fetches and processes an item's page; `POST`
- * processes the page in the body instead. Query: `stage`, and `page=1` to
- * return the fetched page. The work runs in a Runner object, as in production.
+ * processes the page in the body instead. Query: `stage`, `page=1` to return
+ * the fetched page, and `report=1` for the source's extra diagnostics. Each
+ * request runs in a fresh Runner object, as each article does in production,
+ * so its CPU time can be compared with an article invocation's.
  * Undefined when the path isn't a `/dev/clean` route.
  */
 export async function devCleanRoute(request: Request, env: EngineEnv): Promise<Response | undefined> {
@@ -41,9 +45,11 @@ export async function devCleanRoute(request: Request, env: EngineEnv): Promise<R
   if (request.method === "POST") body.page = await request.text();
   else if (request.method !== "GET") return new Response("Method Not Allowed", { status: 405 });
   if (url.searchParams.get("page") === "1") body.includePage = true;
+  if (url.searchParams.get("report") === "1") body.report = true;
   // The query only labels the object's invocation in logs and tails.
   const label = new URLSearchParams({ kind: body.kind, id: body.id, mode: body.page === undefined ? "fetch" : "page" });
-  return env.RUNNER.getByName(`inspect:${body.kind}`).fetch(`https://runner/inspect?${label}`, {
+  const name = `inspect:${body.kind}:${body.id}:${crypto.randomUUID()}`;
+  return env.RUNNER.getByName(name).fetch(`https://runner/inspect?${label}`, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -58,7 +64,10 @@ export async function runInspect(request: InspectRequest): Promise<Response> {
   const page =
     request.page ?? (await source.inspect.fetchPage(request.id, sourceContext(options, `inspect:${request.id}`)));
   try {
-    const result: InspectResponse = await source.inspect.process(page, request.stage);
+    const options: ProcessOptions = {};
+    if (request.stage !== undefined) options.stage = request.stage;
+    if (request.report) options.report = true;
+    const result: InspectResponse = await source.inspect.process(page, options);
     if (request.includePage) result.page = page;
     return Response.json(result);
   } catch (error) {
