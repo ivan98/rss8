@@ -26,7 +26,10 @@ export function createWorker({ sources, config }: { sources: readonly AnySource[
       const { pathname } = new URL(request.url);
       // Forwarded unread: the Worker has 10 ms of CPU, the object about 30 s.
       if (isGreaderPath(pathname)) return env.API.getByName("api").fetch(request);
-      if (request.method === "GET" && pathname === "/health") return new Response("OK");
+      if (request.method === "GET" && pathname === "/health") {
+        const version = env.CF_VERSION_METADATA;
+        return Response.json({ status: "ok", version: version?.tag ?? null, versionId: version?.id ?? null });
+      }
       const admin = await adminRoute(request, env, { config, kinds });
       if (admin) return admin;
       if (env.DEV_ROUTES === "1") {

@@ -15,4 +15,6 @@ export interface EngineEnv {
   AUTH_SECRET?: string;
   /** Bearer token for the `/admin` routes (secret, at least 32 characters). Without it they answer 503. */
   ADMIN_TOKEN?: string;
+  /** The deployment's `version_metadata` binding; `/health` reports its tag. */
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
 }
