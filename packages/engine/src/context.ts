@@ -10,7 +10,78 @@ const FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/rdf+
 export function sourceFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
   if (!headers.has("user-agent")) headers.set("user-agent", USER_AGENT);
-  return fetch(input, { ...init, headers, signal: init?.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (init?.signal) return fetch(input, { ...init, headers });
+  return fetchWithTimeout(input, { ...init, headers }, FETCH_TIMEOUT_MS);
+}
+
+// Statuses whose Response can't be built with a body.
+const NULL_BODY = new Set([101, 103, 204, 205, 304]);
+
+/**
+ * `fetch` with a deadline that covers the headers and the body, cleared as
+ * soon as the body is read to the end, fails or is cancelled. A pending timer
+ * keeps an invocation open: with `AbortSignal.timeout` every object invocation
+ * that fetched lasted the full timeout in wall time, whatever the work took.
+ * A body that is never read keeps the timer until it fires.
+ */
+export async function fetchWithTimeout(
+  input: string | URL | Request,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = new DOMException(`Fetch timed out after ${timeoutMs} ms`, "TimeoutError");
+  let onTimeout = () => controller.abort(timeout);
+  const timer = setTimeout(() => onTimeout(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    clearTimeout(timer);
+    throw error;
+  }
+  if (!res.body || NULL_BODY.has(res.status)) {
+    clearTimeout(timer);
+    return res;
+  }
+
+  // A byte stream, so callers can still read it with a BYOB reader.
+  const reader = res.body.getReader();
+  const body = new ReadableStream({
+    type: "bytes",
+    start(stream) {
+      onTimeout = () => {
+        controller.abort(timeout);
+        stream.error(timeout);
+        reader.cancel(timeout).catch(() => {});
+      };
+    },
+    async pull(stream) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (error) {
+        clearTimeout(timer);
+        stream.error(error);
+        return;
+      }
+      if (chunk.done) {
+        clearTimeout(timer);
+        stream.close();
+        stream.byobRequest?.respond(0);
+      } else {
+        stream.enqueue(chunk.value);
+      }
+    },
+    cancel(reason) {
+      clearTimeout(timer);
+      return reader.cancel(reason);
+    },
+  });
+  const wrapped = new Response(body, res);
+  // The Response constructor doesn't carry these over.
+  Object.defineProperties(wrapped, { url: { value: res.url }, redirected: { value: res.redirected } });
+  return wrapped;
 }
 
 export function sourceContext<Options>(options: Options, label: string): SourceContext<Options> {
