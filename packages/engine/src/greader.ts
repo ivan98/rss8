@@ -121,7 +121,7 @@ export async function handleGreader(request: Request, env: EngineEnv): Promise<R
 
   const route = path.slice(API.length);
   const contentsOf = route === "stream/contents" || route.startsWith("stream/contents/");
-  const handler = contentsOf ? streamContents : ROUTES[route];
+  const handler = contentsOf ? streamContents : Object.hasOwn(ROUTES, route) ? ROUTES[route] : undefined;
   if (!handler) return badRequest();
 
   const params = new URLSearchParams(url.search);

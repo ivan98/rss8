@@ -114,9 +114,11 @@ describe("mount and login", () => {
 
   it("answers an unknown API path with 400 Bad Request!", async () => {
     const client = await Client.login();
-    const res = await client.get("no/such/thing");
-    expect(res.status).toBe(400);
-    expect(await res.text()).toBe("Bad Request!");
+    for (const path of ["no/such/thing", "constructor", "toString"]) {
+      const res = await client.get(path);
+      expect(res.status).toBe(400);
+      expect(await res.text()).toBe("Bad Request!");
+    }
   });
 
   it("returns a 57-character write token", async () => {
