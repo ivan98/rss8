@@ -85,6 +85,15 @@ describe("mount and login", () => {
     expect(await ok.json()).toMatchObject({ userName: "test" });
   });
 
+  it("refuses tokens issued before the password changed", async () => {
+    const auth = await login();
+    const request = new Request("https://rss8.test/reader/api/0/user-info", {
+      headers: { Authorization: `GoogleLogin auth=${auth}` },
+    });
+    expect((await handleGreader(request.clone(), engineEnv)).status).toBe(200);
+    expect((await handleGreader(request, { ...engineEnv, API_PASSWORD: "a-new-password" })).status).toBe(401);
+  });
+
   it("refuses every login and token when a secret is missing or short", async () => {
     const auth = await login();
     const request = (path: string, init?: RequestInit) => new Request(`https://rss8.test${path}`, init);

@@ -1,8 +1,10 @@
 // Single-user Google Reader auth, stateless: the Api object is replaced after
 // about 10 s idle, so every token is recomputed from AUTH_SECRET on each request.
-//   Auth token  <user>/<hex HMAC-SHA256(AUTH_SECRET, "auth:" + user)>
-//   write token first 40 hex chars of HMAC(AUTH_SECRET, "write:" + user), padded
-//               with Z to 57 characters, the length FreshRSS returns
+//   Auth token  <user>/<hex HMAC-SHA256(AUTH_SECRET, "auth:" + user + "\n" + API_PASSWORD)>
+//   write token first 40 hex chars of HMAC(AUTH_SECRET, "write:" + user + "\n" + API_PASSWORD),
+//               padded with Z to 57 characters, the length FreshRSS returns
+// Signing the password too, as FreshRSS does, means changing either secret
+// logs every client out.
 
 export interface AuthSecrets {
   password: string;
@@ -46,7 +48,7 @@ export async function authenticate(secrets: AuthSecrets, header: string | null):
 }
 
 export async function writeToken(secrets: AuthSecrets, user: string): Promise<string> {
-  return (await hmacHex(secrets.secret, `write:${user}`)).slice(0, 40).padEnd(57, "Z");
+  return (await hmacHex(secrets.secret, `write:${user}\n${secrets.password}`)).slice(0, 40).padEnd(57, "Z");
 }
 
 /** FreshRSS's rule: no `T`, an empty `T` and `x` pass; anything else must be the user's write token. */
@@ -56,7 +58,7 @@ export async function writeTokenAccepted(secrets: AuthSecrets, user: string, t: 
 }
 
 async function authToken(secrets: AuthSecrets, user: string): Promise<string> {
-  return `${user}/${await hmacHex(secrets.secret, `auth:${user}`)}`;
+  return `${user}/${await hmacHex(secrets.secret, `auth:${user}\n${secrets.password}`)}`;
 }
 
 const encoder = new TextEncoder();
