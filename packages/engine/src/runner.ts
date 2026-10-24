@@ -16,7 +16,7 @@ const INSERT_CHUNK_BYTES = 1024 * 1024;
  * Everything durable goes to D1; the object keeps nothing between requests.
  * `/discover` answers `{"itemIds": [...]}`, the ids it inserted, for the
  * admin route; the queue consumer only checks the status.
- * `/inspect` serves the `/dev/clean` route and writes nothing.
+ * `/inspect` serves the `/dev/clean` and `/admin/clean` routes and writes nothing.
  */
 export class Runner extends DurableObject<EngineEnv> {
   override async fetch(request: Request): Promise<Response> {

@@ -27,7 +27,8 @@ interface AdminRoute {
 
 const MIN_TOKEN_LENGTH = 32;
 
-// The work runs in Runner objects; the Worker only routes, within its 10 ms of CPU.
+// Discover, article and clean run in Runner objects. Requeue stays in the
+// Worker: one UPDATE and the sends, mostly network waits, like the cron's.
 const ROUTES: readonly AdminRoute[] = [
   { methods: ["POST"], pattern: /^\/admin\/discover$/, handler: discover },
   { methods: ["POST"], pattern: /^\/admin\/article$/, handler: article },
