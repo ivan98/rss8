@@ -336,24 +336,33 @@ describe("system feed", () => {
     expect(await titles()).toEqual(["plain is failing"]);
   });
 
-  it("stores a recovering feed's items and its recovered message together, or neither", async () => {
-    const worker = await setup(plain);
-    captureQueue();
+  it("stores a recovering feed's items, validators and recovered message together, or none of them", async () => {
+    const worker = await setup(withArticles);
+    const sent = captureQueue();
     let status = 403;
-    fakeOrigin({ [FEED_URL]: () => (status === 200 ? serve(rss([{ guid: "a" }]))() : new Response("x", { status })) });
-    const id = await feedId("plain");
+    fakeOrigin({
+      [FEED_URL]: () =>
+        status === 200 ? serve(rss([{ guid: "a" }]), { etag: '"v1"' })() : new Response("x", { status }),
+    });
+    const id = await feedId("pages");
     await deliver(worker, { type: "discover", feedId: id });
     status = 200;
 
-    failNextSystemPost();
+    // Fails the recovered insert when it runs inside the batch, as a D1 error would.
+    await db.exec(
+      "CREATE TRIGGER fail_recovered BEFORE INSERT ON item WHEN NEW.guid LIKE 'system:feed-recovered:%' BEGIN SELECT RAISE(ABORT, 'D1 hiccup'); END",
+    );
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ retryDelaySeconds: 600 });
     expect((await items()).filter((r) => r.guid.startsWith("fake-"))).toEqual([]);
-    expect(await titles()).toEqual(["plain is failing"]);
+    expect((await db.prepare("SELECT count(*) AS n FROM feed_url").first<number>("n"))).toBe(0);
+    expect(await titles()).toEqual(["pages is failing"]);
 
+    await db.exec("DROP TRIGGER fail_recovered");
     expect(await deliver(worker, { type: "discover", feedId: id }, 2)).toEqual({ ack: true });
     expect((await items()).filter((r) => r.guid.startsWith("fake-"))).toHaveLength(1);
-    expect(await titles()).toEqual(["plain is failing", "plain recovered"]);
+    expect(sent.filter((m) => m.body.type === "article")).toHaveLength(1);
+    expect(await titles()).toEqual(["pages is failing", "pages recovered"]);
   });
 
   it("acks maintenance whose daily report fails, without rerunning retention", async () => {
@@ -411,6 +420,10 @@ describe("system feed", () => {
     expect(reports.map((m) => m.title)).toEqual(["rss8 daily: all 1 feeds healthy"]);
     expect(reports[0]!.content).toContain("<tr><td>plain</td><td>2</td>");
     expect(reports[0]!.content).toContain("2 articles kept (2 unread, 0 starred); 2 new in 24 hours");
+
+    // The second report must not count the first one.
+    await deliver(worker, { ...message, date: "2026-10-27" });
+    expect((await systemMessages()).at(-1)!.content).toContain("2 articles kept (2 unread, 0 starred)");
   });
 
   it("names the feeds that need attention in the daily report's title", async () => {
