@@ -650,4 +650,14 @@ describe("createWorker", () => {
       createWorker({ sources: [feedSource], config: testConfig([{ ...plain.feeds[0]!, options: {} }]) }),
     ).toThrow(/options.url/);
   });
+
+  it("rejects a duplicate feed key or a bad folder name when the deployment loads", async () => {
+    const feed = plain.feeds[0]!;
+    expect(() => createWorker({ sources: [feedSource], config: testConfig([feed, { ...feed }]) })).toThrow(
+      `Duplicate feed key "${feed.key}"`,
+    );
+    expect(() =>
+      createWorker({ sources: [feedSource], config: testConfig([{ ...feed, category: "News/Local" }]) }),
+    ).toThrow(/category/);
+  });
 });

@@ -54,7 +54,7 @@ const STORE_HASH = `
 INSERT INTO meta (key, value) VALUES ('config_hash', ?1)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
 
-function assertValidConfig(config: Config, sourceKinds: readonly string[]): void {
+export function assertValidConfig(config: Config, sourceKinds: readonly string[]): void {
   const known = new Set(sourceKinds);
   const seen = new Set<string>();
   for (const feed of config.feeds) {

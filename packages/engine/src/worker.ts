@@ -1,6 +1,6 @@
 import { adminRoute } from "./admin";
 import type { Config } from "./config";
-import { syncConfig } from "./config-sync";
+import { assertValidConfig, syncConfig } from "./config-sync";
 import { consume } from "./consumer";
 import { isDue, localMinute, localMinutes, parseCron, type CronSchedule, type LocalMinute } from "./cron";
 import type { EngineEnv } from "./env";
@@ -16,8 +16,10 @@ const MAX_CATCH_UP_MS = 24 * 3_600_000;
 
 export function createWorker({ sources, config }: { sources: readonly AnySource[]; config: Config }) {
   registerDeployment(sources, config);
-  const schedules = feedSchedules(sources, config);
   const kinds = sources.map((s) => s.kind);
+  // Thrown at module load, so an invalid config fails the upload instead of every tick.
+  assertValidConfig(config, kinds);
+  const schedules = feedSchedules(sources, config);
 
   return {
     async fetch(request: Request, env: EngineEnv): Promise<Response> {
