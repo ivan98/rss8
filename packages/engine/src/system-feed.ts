@@ -170,20 +170,32 @@ function dailyTitle(report: DailyReport): string {
   return `rss8 daily: ${attention} of ${report.feeds.length} feeds need attention${storage}`;
 }
 
-function dailyContent(report: DailyReport): string {
+/**
+ * Reeder shows a bare table as unbordered text, so the table carries its own
+ * borders and padding. Rows run newest fetch first (to the minute, as shown),
+ * then most new items; feeds never fetched go last.
+ */
+export function dailyContent(report: DailyReport): string {
   const tz = report.timezone;
-  const rows = report.feeds.map((f) => {
+  const minute = (f: FeedHealth) => (f.lastFetchedAt === null ? -1 : Math.floor(f.lastFetchedAt / 60_000));
+  const feeds = [...report.feeds].sort((a, b) => minute(b) - minute(a) || b.added - a.added);
+  const cell = `style="border: 1px solid #888; padding: 4px 8px; text-align: left; vertical-align: top"`;
+  const num = `style="border: 1px solid #888; padding: 4px 8px; text-align: right; vertical-align: top"`;
+  const rows = feeds.map((f) => {
     const status = feedStatus(f, tz);
     const added = f.errors ? `${f.added} (${f.errors} article errors)` : String(f.added);
     const fetched = f.lastFetchedAt === null ? "never" : localTime(f.lastFetchedAt, tz);
     const text = status.attention ? `<strong>${esc(status.text)}</strong>` : esc(status.text);
-    return `<tr><td>${esc(f.title)}</td><td>${added}</td><td>${fetched}</td><td>${text}</td></tr>`;
+    return `<tr><td ${cell}>${esc(f.title)}</td><td ${num}>${added}</td><td ${cell}>${fetched}</td><td ${cell}>${text}</td></tr>`;
   });
   const { library, maintenance } = report;
   const newTotal = report.feeds.reduce((sum, f) => sum + f.added, 0);
   return `<h3>Feeds, last 24 hours</h3>
-<table><tr><th>Feed</th><th>New</th><th>Last fetched</th><th>Status</th></tr>
+<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse">
+<thead><tr><th ${cell}>Feed</th><th ${num}>New</th><th ${cell}>Last fetched</th><th ${cell}>Status</th></tr></thead>
+<tbody>
 ${rows.join("\n")}
+</tbody>
 </table>
 <p><strong>Library:</strong> ${count(library.total)} articles kept (${count(library.unread)} unread, ${count(library.starred)} starred); ${count(newTotal)} new in 24 hours.</p>
 <p><strong>Maintenance:</strong> ${count(maintenance.tombstoned)} articles expired, ${count(maintenance.deleted)} old tombstones deleted, ${count(maintenance.erred)} stuck articles marked as errors.</p>
