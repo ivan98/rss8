@@ -73,15 +73,19 @@ async function recordFailure(db: D1Database, message: EngineMessage, error: stri
   const now = Date.now();
   switch (message.type) {
     case "discover": {
-      await recordFeedError(db, message.feedId, error);
-      // Guarded on NULL, so only the first failure of a run of failures posts.
+      // failing_since keeps the first failure of a run, and the message's guid
+      // is built from it, so every later failure posts the same message: stored
+      // once, and still posted if an earlier attempt to post it failed.
       const feed = await db
-        .prepare("UPDATE feed SET failing_since = ?2 WHERE id = ?1 AND failing_since IS NULL RETURNING key, title, site_url")
-        .bind(message.feedId, now)
-        .first<{ key: string; title: string; site_url: string | null }>();
+        .prepare(
+          `UPDATE feed SET last_error = ?2, failing_since = COALESCE(failing_since, ?3) WHERE id = ?1
+           RETURNING key, title, site_url, failing_since`,
+        )
+        .bind(message.feedId, error, now)
+        .first<{ key: string; title: string; site_url: string | null; failing_since: number }>();
       if (feed) {
         const ref = { key: feed.key, title: feed.title, siteUrl: feed.site_url };
-        await postSystemMessage(db, { type: "feed-failing", feed: ref, since: now, error }, now);
+        await postSystemMessage(db, { type: "feed-failing", feed: ref, since: feed.failing_since, error }, now);
       }
       break;
     }

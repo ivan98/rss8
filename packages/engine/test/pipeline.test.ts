@@ -306,6 +306,71 @@ describe("system feed", () => {
     expect(await titles()).toEqual(["plain is failing", "plain recovered"]);
   });
 
+  // Makes the next system message insert throw, as a transient D1 error would.
+  function failNextSystemPost() {
+    const prepare = db.prepare.bind(db);
+    let failed = false;
+    vi.spyOn(engineEnv.DB, "prepare").mockImplementation((sql) => {
+      if (!failed && sql.includes("SELECT id, ?1, 'ok'")) {
+        failed = true;
+        throw new Error("D1 hiccup");
+      }
+      return prepare(sql);
+    });
+  }
+
+  it("still acks a final failure whose message can't be posted, and posts it on the next failure", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    fakeOrigin({ [FEED_URL]: () => new Response("x", { status: 403 }) });
+    const id = await feedId("plain");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    failNextSystemPost();
+    expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ ack: true });
+    expect(await systemMessages()).toEqual([]);
+    expect(error.mock.calls.some(([line]) => String(line).includes("feed-failing not posted"))).toBe(true);
+
+    await deliver(worker, { type: "discover", feedId: id });
+    await deliver(worker, { type: "discover", feedId: id });
+    expect(await titles()).toEqual(["plain is failing"]);
+  });
+
+  it("stores a recovering feed's items and its recovered message together, or neither", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    let status = 403;
+    fakeOrigin({ [FEED_URL]: () => (status === 200 ? serve(rss([{ guid: "a" }]))() : new Response("x", { status })) });
+    const id = await feedId("plain");
+    await deliver(worker, { type: "discover", feedId: id });
+    status = 200;
+
+    failNextSystemPost();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ retryDelaySeconds: 600 });
+    expect((await items()).filter((r) => r.guid.startsWith("fake-"))).toEqual([]);
+    expect(await titles()).toEqual(["plain is failing"]);
+
+    expect(await deliver(worker, { type: "discover", feedId: id }, 2)).toEqual({ ack: true });
+    expect((await items()).filter((r) => r.guid.startsWith("fake-"))).toHaveLength(1);
+    expect(await titles()).toEqual(["plain is failing", "plain recovered"]);
+  });
+
+  it("acks maintenance whose daily report fails, without rerunning retention", async () => {
+    const worker = await setup(plain);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const prepare = db.prepare.bind(db);
+    vi.spyOn(engineEnv.DB, "prepare").mockImplementation((sql) => {
+      if (sql.includes("count(*) AS total")) throw new Error("report broke");
+      return prepare(sql);
+    });
+
+    expect(await deliver(worker, { type: "maintenance", date: "2026-10-26", now: Date.now() })).toEqual({ ack: true });
+    expect(await systemMessages()).toEqual([]);
+    expect(error.mock.calls.some(([line]) => String(line).includes("daily report not posted"))).toBe(true);
+  });
+
   it("posts nothing for a failure that a retry fixes", async () => {
     const worker = await setup(plain);
     captureQueue();

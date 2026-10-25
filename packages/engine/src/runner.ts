@@ -5,7 +5,7 @@ import { runInspect, type InspectRequest } from "./inspect";
 import { runMaintenance } from "./maintenance";
 import { ARTICLE_STAGGER_SECONDS, FINAL_FAILURE_STATUS, parseMessage, sendAll, type EngineMessage } from "./messages";
 import { getConfig, getSource, parseOptions, type Candidate } from "./source";
-import { dailyReport, postSystemMessage } from "./system-feed";
+import { dailyReport, postSystemMessage, systemMessageInsert } from "./system-feed";
 
 const KEEP_NEWEST = 100;
 // A site that refuses the request now refuses the retry ten minutes later too.
@@ -44,9 +44,14 @@ export class Runner extends DurableObject<EngineEnv> {
           const config = getConfig();
           const report = await runMaintenance(this.env.DB, config, message.now);
           console.log("maintenance", JSON.stringify({ date: message.date, ...report }));
-          const version = this.env.CF_VERSION_METADATA?.tag ?? null;
-          const daily = await dailyReport(this.env.DB, config, message.now, report, version);
-          await postSystemMessage(this.env.DB, { type: "daily", date: message.date, report: daily }, Date.now());
+          // The report must not decide whether maintenance succeeded: a retry would rerun retention.
+          try {
+            const version = this.env.CF_VERSION_METADATA?.tag ?? null;
+            const daily = await dailyReport(this.env.DB, config, message.now, report, version);
+            await postSystemMessage(this.env.DB, { type: "daily", date: message.date, report: daily }, Date.now());
+          } catch (error) {
+            console.error(`maintenance ${message.date}: daily report not posted:`, error);
+          }
           break;
         }
       }
@@ -100,17 +105,22 @@ async function discover(
     db.prepare(INSERT_ITEMS).bind(feed.id, status, now, JSON.stringify(chunk)),
   );
   const warning = run.warnings.length ? `warning: ${run.warnings.join("; ")}` : null;
+  // The "recovered" message goes in the same batch: posted after it, a failed
+  // post would retry the discover, whose items would then already exist and
+  // send no article messages.
+  const ref = { key: feed.key, title: feed.title, siteUrl: feed.site_url };
+  const recovered =
+    feed.failing_since === null
+      ? []
+      : [systemMessageInsert(db, { type: "feed-recovered", feed: ref, since: feed.failing_since, now }, now)];
   const results = await db.batch<{ id: number }>([
     ...inserts,
     ...run.pending,
+    ...recovered,
     db
       .prepare("UPDATE feed SET last_fetched_at = ?, last_error = ?, failing_since = NULL WHERE id = ?")
       .bind(now, warning, feed.id),
   ]);
-  if (feed.failing_since !== null) {
-    const ref = { key: feed.key, title: feed.title, siteUrl: feed.site_url };
-    await postSystemMessage(db, { type: "feed-recovered", feed: ref, since: feed.failing_since, now }, now);
-  }
 
   const inserted = results
     .slice(0, inserts.length)

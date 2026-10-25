@@ -48,20 +48,29 @@ export interface DailyReport {
 const D1_LIMIT_BYTES = 500_000_000;
 
 /**
- * Posts one message to the system feed, as an `ok` item. It does nothing when
+ * The statement that posts one message to the system feed, as an `ok` item,
+ * for a caller to run alone or inside its own batch. It inserts nothing when
  * the feed is disabled. The guid is derived from the message, so posting the
  * same message twice (a redelivered queue message) stores it once.
  */
-export async function postSystemMessage(db: D1Database, message: SystemMessage, now: number): Promise<void> {
+export function systemMessageInsert(db: D1Database, message: SystemMessage, now: number): D1PreparedStatement {
   const { guid, title, url, content } = render(message);
-  await db
+  return db
     .prepare(
       `INSERT OR IGNORE INTO item (feed_id, guid, status, url, title, content, published_at, crawled_at)
        SELECT id, ?1, 'ok', ?2, ?3, ?4, ?5, MAX(?6, COALESCE((SELECT MAX(crawled_at) FROM item), 0))
        FROM feed WHERE key = '${SYSTEM}' AND source = '${SYSTEM}' AND enabled = 1 AND archived_at IS NULL`,
     )
-    .bind(guid, url, title, content, Math.floor(now / 1000), now)
-    .run();
+    .bind(guid, url, title, content, Math.floor(now / 1000), now);
+}
+
+/** Posts a message on its own. A failure is logged, not thrown: a message must never fail the work it reports on. */
+export async function postSystemMessage(db: D1Database, message: SystemMessage, now: number): Promise<void> {
+  try {
+    await systemMessageInsert(db, message, now).run();
+  } catch (error) {
+    console.error(`system feed: ${message.type} not posted:`, error);
+  }
 }
 
 /** Reads the numbers for the daily message: 3 queries, about one row per item kept plus a day's new items. */
@@ -85,7 +94,8 @@ export async function dailyReport(
       )
       .bind(now - 86_400_000),
     db.prepare(
-      "SELECT count(*) AS total, sum(is_read = 0) AS unread, sum(is_starred) AS starred FROM item WHERE status = 'ok'",
+      `SELECT count(*) AS total, sum(is_read = 0) AS unread, sum(is_starred) AS starred FROM item
+       WHERE status = 'ok' AND feed_id != (SELECT id FROM feed WHERE key = '${SYSTEM}')`,
     ),
   ]);
   const counts = new Map(added!.results.map((r) => [r.feed_id, r]));
