@@ -7,6 +7,16 @@ const USER_AGENT =
 const FETCH_TIMEOUT_MS = 20_000;
 const FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/rdf+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5";
 
+/** A feed URL answered with a status other than 2xx or 304. */
+export class FeedHttpError extends Error {
+  constructor(
+    readonly url: string,
+    readonly status: number,
+  ) {
+    super(`GET ${url}: HTTP ${status}`);
+  }
+}
+
 export function sourceFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
   if (!headers.has("user-agent")) headers.set("user-agent", USER_AGENT);
@@ -157,7 +167,7 @@ export function discoverContext(
     }
     if (!res.ok) {
       await res.body?.cancel();
-      throw new Error(`GET ${url}: HTTP ${res.status}`);
+      throw new FeedHttpError(url, res.status);
     }
     const { text, truncated } = await readCapped(res.body, FEED_BYTE_CAP);
     if (truncated) warnings.push(`${url} is over ${FEED_BYTE_CAP / 1024 / 1024} MB; only the first part was parsed`);

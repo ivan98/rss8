@@ -8,6 +8,8 @@ export type EngineMessage =
 /** Must equal the consumer's `max_retries` in the Wrangler config. */
 export const MAX_RETRIES = 3;
 export const RETRY_DELAY_SECONDS = 600;
+/** The Runner's status for a failure a retry can't fix; the consumer records it and acks at once. */
+export const FINAL_FAILURE_STATUS = 422;
 /** The gap between consecutive article messages, so their fetches don't reach the origin at once. */
 export const ARTICLE_STAGGER_SECONDS = 2;
 /** Queues' limit on a message's `delaySeconds`. */

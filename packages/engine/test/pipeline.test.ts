@@ -243,7 +243,7 @@ describe("discover", () => {
     expect(await items()).toEqual([]);
   });
 
-  it("records the error on the feed only after the last attempt", async () => {
+  it("records each failed attempt on the feed, and the final error after the last", async () => {
     const worker = await setup(plain);
     captureQueue();
     fakeOrigin({ [FEED_URL]: () => new Response("down", { status: 503 }) });
@@ -252,7 +252,9 @@ describe("discover", () => {
     for (const attempt of [1, 2, 3]) {
       const result = await deliver(worker, { type: "discover", feedId: id }, attempt);
       expect(result).toEqual({ retryDelaySeconds: 600 });
-      expect((await feedRow("plain"))?.last_error).toBeNull();
+      expect((await feedRow("plain"))?.last_error).toBe(
+        `discover attempt ${attempt} of 4 failed, retrying in 10 min: GET ${FEED_URL}: HTTP 503`,
+      );
     }
     const last = await deliver(worker, { type: "discover", feedId: id }, 4);
 
@@ -260,6 +262,22 @@ describe("discover", () => {
     expect((await feedRow("plain"))?.last_error).toBe(
       `discover failed after 4 attempts: GET ${FEED_URL}: HTTP 503`,
     );
+  });
+
+  it("doesn't retry a feed that answers 403, and a later success clears the error", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    let status = 403;
+    fakeOrigin({ [FEED_URL]: () => (status === 403 ? new Response("blocked", { status }) : serve(rss([{ guid: "a" }]))()) });
+    const id = await feedId("plain");
+
+    expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ ack: true });
+    expect((await feedRow("plain"))?.last_error).toBe(`discover failed, not retried: GET ${FEED_URL}: HTTP 403`);
+
+    status = 200;
+    expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ ack: true });
+    expect((await feedRow("plain"))?.last_error).toBeNull();
+    expect(await items()).toHaveLength(1);
   });
 });
 
@@ -564,7 +582,7 @@ describe("cron dispatcher", () => {
       expect(await maintenanceSent("2026-10-25T21:30:00Z")).toHaveLength(1);
     });
 
-    it("retries a failing run 600 s later, and on the last attempt logs an error and acks", async () => {
+    it("retries a failing run 600 s later, logging each attempt, and on the last acks", async () => {
       await seedArchived();
       const worker = await setup(config);
       const body = { type: "maintenance", date: "2026-10-26", now: Date.parse("2026-10-25T21:15:00Z") } as const;
@@ -578,9 +596,11 @@ describe("cron dispatcher", () => {
       for (const attempt of [1, 2, 3]) {
         expect(await deliver(worker, body, attempt)).toEqual({ retryDelaySeconds: 600 });
       }
-      expect(error).not.toHaveBeenCalled();
       expect(await deliver(worker, body, 4)).toEqual({ ack: true });
       expect(error.mock.calls).toEqual([
+        ...[1, 2, 3].map((n) => [
+          `maintenance 2026-10-26: maintenance attempt ${n} of 4 failed, retrying in 10 min: maintenance broke`,
+        ]),
         ["maintenance 2026-10-26: maintenance failed after 4 attempts: maintenance broke"],
       ]);
       vi.restoreAllMocks();

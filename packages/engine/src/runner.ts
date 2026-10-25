@@ -1,12 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import { discoverContext, sourceContext } from "./context";
+import { discoverContext, FeedHttpError, sourceContext } from "./context";
 import type { EngineEnv } from "./env";
 import { runInspect, type InspectRequest } from "./inspect";
 import { runMaintenance } from "./maintenance";
-import { ARTICLE_STAGGER_SECONDS, parseMessage, sendAll, type EngineMessage } from "./messages";
+import { ARTICLE_STAGGER_SECONDS, FINAL_FAILURE_STATUS, parseMessage, sendAll, type EngineMessage } from "./messages";
 import { getConfig, getSource, parseOptions, type Candidate } from "./source";
 
 const KEEP_NEWEST = 100;
+// A site that refuses the request now refuses the retry ten minutes later too.
+const FINAL_FEED_STATUSES = new Set([403]);
 // Each insert binds its candidates as one JSON string; D1 caps a bound value at 2 MB.
 const INSERT_CHUNK_BYTES = 1024 * 1024;
 
@@ -17,6 +19,8 @@ const INSERT_CHUNK_BYTES = 1024 * 1024;
  * `/discover` answers `{"itemIds": [...]}`, the ids it inserted, for the
  * admin route; the queue consumer only checks the status.
  * `/inspect` serves the `/dev/clean` and `/admin/clean` routes and writes nothing.
+ * A failure answers its message as the body, with status 500, or
+ * `FINAL_FAILURE_STATUS` when a retry can't fix it.
  */
 export class Runner extends DurableObject<EngineEnv> {
   override async fetch(request: Request): Promise<Response> {
@@ -43,7 +47,10 @@ export class Runner extends DurableObject<EngineEnv> {
       }
       return new Response("OK");
     } catch (error) {
-      return new Response(error instanceof Error ? error.message : String(error), { status: 500 });
+      const final = error instanceof FeedHttpError && FINAL_FEED_STATUSES.has(error.status);
+      return new Response(error instanceof Error ? error.message : String(error), {
+        status: final ? FINAL_FAILURE_STATUS : 500,
+      });
     }
   }
 }
