@@ -5,6 +5,7 @@ import { runInspect, type InspectRequest } from "./inspect";
 import { runMaintenance } from "./maintenance";
 import { ARTICLE_STAGGER_SECONDS, FINAL_FAILURE_STATUS, parseMessage, sendAll, type EngineMessage } from "./messages";
 import { getConfig, getSource, parseOptions, type Candidate } from "./source";
+import { dailyReport, postSystemMessage } from "./system-feed";
 
 const KEEP_NEWEST = 100;
 // A site that refuses the request now refuses the retry ten minutes later too.
@@ -40,8 +41,12 @@ export class Runner extends DurableObject<EngineEnv> {
           await article(this.env, message.itemId);
           break;
         case "maintenance": {
-          const report = await runMaintenance(this.env.DB, getConfig(), message.now);
+          const config = getConfig();
+          const report = await runMaintenance(this.env.DB, config, message.now);
           console.log("maintenance", JSON.stringify({ date: message.date, ...report }));
+          const version = this.env.CF_VERSION_METADATA?.tag ?? null;
+          const daily = await dailyReport(this.env.DB, config, message.now, report, version);
+          await postSystemMessage(this.env.DB, { type: "daily", date: message.date, report: daily }, Date.now());
           break;
         }
       }
@@ -63,6 +68,7 @@ interface FeedRow {
   state: string | null;
   title: string;
   site_url: string | null;
+  failing_since: number | null;
 }
 
 /** The ids of the items it inserted, in ascending order. */
@@ -74,7 +80,7 @@ async function discover(
   const db = env.DB;
   const feed = await db
     .prepare(
-      `SELECT id, key, source, options, state, title, site_url FROM feed
+      `SELECT id, key, source, options, state, title, site_url, failing_since FROM feed
        WHERE id = ?1 AND (enabled = 1 OR ?2) AND archived_at IS NULL`,
     )
     .bind(feedId, manual ? 1 : 0)
@@ -97,8 +103,14 @@ async function discover(
   const results = await db.batch<{ id: number }>([
     ...inserts,
     ...run.pending,
-    db.prepare("UPDATE feed SET last_fetched_at = ?, last_error = ? WHERE id = ?").bind(now, warning, feed.id),
+    db
+      .prepare("UPDATE feed SET last_fetched_at = ?, last_error = ?, failing_since = NULL WHERE id = ?")
+      .bind(now, warning, feed.id),
   ]);
+  if (feed.failing_since !== null) {
+    const ref = { key: feed.key, title: feed.title, siteUrl: feed.site_url };
+    await postSystemMessage(db, { type: "feed-recovered", feed: ref, since: feed.failing_since, now }, now);
+  }
 
   const inserted = results
     .slice(0, inserts.length)

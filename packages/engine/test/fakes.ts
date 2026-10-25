@@ -1,7 +1,7 @@
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { vi } from "vitest";
-import type { Config, EngineEnv, EngineMessage, FeedEntry } from "../src/index";
+import type { Config, EngineEnv, EngineMessage, FeedConfig, FeedEntry } from "../src/index";
 import { createWorker, defineSource, syncConfig } from "../src/index";
 
 export const engineEnv = env as unknown as EngineEnv;
@@ -62,12 +62,15 @@ export const articleSource = defineSource<FeedOptions>({
   },
 });
 
+/** Every config needs it; tests put it last so the other feeds keep their positions. */
+export const systemFeed: FeedConfig = { key: "system", source: "system", enabled: true, title: "rss8" };
+
 export function testConfig(feeds: Config["feeds"]): Config {
   return {
     timezone: "Asia/Singapore",
     retention: { readDays: 30, unreadDays: 90, maxItems: 1000 },
     tombstoneDays: 365,
-    feeds,
+    feeds: feeds.some((f) => f.key === systemFeed.key) ? feeds : [...feeds, systemFeed],
   };
 }
 
@@ -176,6 +179,14 @@ export async function items(): Promise<ItemRow[]> {
       "SELECT id, feed_id, guid, status, attempts, title, url, summary, content, published_at, crawled_at FROM item ORDER BY id",
     )
     .all<ItemRow>();
+  return results;
+}
+
+/** The system feed's items, oldest first. */
+export async function systemMessages(): Promise<{ guid: string; title: string; content: string }[]> {
+  const { results } = await db
+    .prepare("SELECT guid, title, content FROM item WHERE feed_id = (SELECT id FROM feed WHERE key = 'system') ORDER BY id")
+    .all<{ guid: string; title: string; content: string }>();
   return results;
 }
 

@@ -14,6 +14,8 @@ import {
   resetDb,
   rss,
   setup,
+  systemFeed,
+  systemMessages,
   testConfig,
 } from "./fakes";
 
@@ -277,7 +279,87 @@ describe("discover", () => {
     status = 200;
     expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ ack: true });
     expect((await feedRow("plain"))?.last_error).toBeNull();
-    expect(await items()).toHaveLength(1);
+    expect((await items()).filter((r) => r.guid.startsWith("fake-"))).toHaveLength(1);
+  });
+});
+
+describe("system feed", () => {
+  const titles = async () => (await systemMessages()).map((m) => m.title);
+
+  it("posts once when a feed starts failing and once when it recovers, however often it fails", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    let status = 403;
+    fakeOrigin({ [FEED_URL]: () => (status === 200 ? serve(rss([{ guid: "a" }]))() : new Response("x", { status })) });
+    const id = await feedId("plain");
+
+    await deliver(worker, { type: "discover", feedId: id });
+    await deliver(worker, { type: "discover", feedId: id });
+    status = 503;
+    await deliver(worker, { type: "discover", feedId: id }, 4);
+    expect(await titles()).toEqual(["plain is failing"]);
+    expect((await systemMessages())[0]!.content).toContain(`GET ${FEED_URL}: HTTP 403`);
+
+    status = 200;
+    await deliver(worker, { type: "discover", feedId: id });
+    await deliver(worker, { type: "discover", feedId: id });
+    expect(await titles()).toEqual(["plain is failing", "plain recovered"]);
+  });
+
+  it("posts nothing for a failure that a retry fixes", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    let status = 503;
+    fakeOrigin({ [FEED_URL]: () => (status === 200 ? serve(rss([{ guid: "a" }]))() : new Response("x", { status })) });
+    const id = await feedId("plain");
+
+    expect(await deliver(worker, { type: "discover", feedId: id })).toEqual({ retryDelaySeconds: 600 });
+    status = 200;
+    expect(await deliver(worker, { type: "discover", feedId: id }, 2)).toEqual({ ack: true });
+
+    expect(await systemMessages()).toEqual([]);
+  });
+
+  it("posts nothing while the system feed is disabled", async () => {
+    const worker = await setup(testConfig([...plain.feeds.filter((f) => f.key !== "system"), { ...systemFeed, enabled: false }]));
+    captureQueue();
+    fakeOrigin({ [FEED_URL]: () => new Response("x", { status: 403 }) });
+
+    await deliver(worker, { type: "discover", feedId: await feedId("plain") });
+
+    expect((await feedRow("plain"))?.last_error).toMatch(/HTTP 403/);
+    expect(await systemMessages()).toEqual([]);
+  });
+
+  it("posts one daily report per maintenance date, listing each feed's new items and status", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    fakeOrigin({ [FEED_URL]: serve(rss([{ guid: "a" }, { guid: "b" }])) });
+    await deliver(worker, { type: "discover", feedId: await feedId("plain") });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const message = { type: "maintenance", date: "2026-10-26", now: Date.now() } as const;
+    await deliver(worker, message);
+    await deliver(worker, message);
+
+    const reports = await systemMessages();
+    expect(reports.map((m) => m.title)).toEqual(["rss8 daily: all 1 feeds healthy"]);
+    expect(reports[0]!.content).toContain("<tr><td>plain</td><td>2</td>");
+    expect(reports[0]!.content).toContain("2 articles kept (2 unread, 0 starred); 2 new in 24 hours");
+  });
+
+  it("names the feeds that need attention in the daily report's title", async () => {
+    const worker = await setup(plain);
+    captureQueue();
+    fakeOrigin({ [FEED_URL]: () => new Response("x", { status: 403 }) });
+    await deliver(worker, { type: "discover", feedId: await feedId("plain") });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await deliver(worker, { type: "maintenance", date: "2026-10-26", now: Date.now() });
+
+    const daily = (await systemMessages()).at(-1)!;
+    expect(daily.title).toBe("rss8 daily: 1 of 1 feeds need attention");
+    expect(daily.content).toMatch(/<strong>failing since .*HTTP 403<\/strong>/);
   });
 });
 
@@ -566,7 +648,10 @@ describe("cron dispatcher", () => {
       const worker = await setup(config);
       vi.spyOn(console, "log").mockImplementation(() => {});
       expect(await deliver(worker, maintenance[0]!)).toEqual({ ack: true });
-      expect((await items()).map((r) => [r.feed_id, r.status, r.title])).toEqual([[gone, "purged", null]]);
+      expect((await items()).filter((r) => r.feed_id === gone).map((r) => [r.status, r.title])).toEqual([
+        ["purged", null],
+      ]);
+      expect((await systemMessages()).map((m) => m.guid)).toEqual(["system:daily:2026-10-26"]);
     });
 
     it("re-enqueues on the next tick when the send fails", async () => {
@@ -604,7 +689,8 @@ describe("cron dispatcher", () => {
         ["maintenance 2026-10-26: maintenance failed after 4 attempts: maintenance broke"],
       ]);
       vi.restoreAllMocks();
-      expect((await items()).map((r) => r.status)).toEqual(["ok"]);
+      expect((await items()).filter((r) => !r.guid.startsWith("system:")).map((r) => r.status)).toEqual(["ok"]);
+      expect((await systemMessages()).map((m) => m.title)).toEqual(["Maintenance for 2026-10-26 failed"]);
     });
   });
 
@@ -669,6 +755,19 @@ describe("createWorker", () => {
     expect(() =>
       createWorker({ sources: [feedSource], config: testConfig([{ ...plain.feeds[0]!, options: {} }]) }),
     ).toThrow(/options.url/);
+  });
+
+  it("requires exactly one feed with key and source system", async () => {
+    const feed = plain.feeds[0]!;
+    const load = (feeds: Parameters<typeof testConfig>[0]) => () =>
+      createWorker({ sources: [feedSource], config: { ...plain, feeds } });
+    const rule = /exactly one feed with key "system" and source "system"/;
+    expect(load([feed])).toThrow(rule);
+    expect(load([feed, { ...systemFeed, key: "rss8" }])).toThrow(rule);
+    expect(load([feed, { ...systemFeed, source: "fake-feed", options: { url: FEED_URL } }])).toThrow(rule);
+    expect(load([feed, systemFeed, { ...systemFeed, key: "system2" }])).toThrow(rule);
+    expect(load([feed, { ...systemFeed, schedule: ["0 * * * *"] }])).toThrow(/takes no options or schedule/);
+    expect(load([feed, { ...systemFeed, enabled: false, category: "rss8" }])).not.toThrow();
   });
 
   it("rejects a duplicate feed key or a bad folder name when the deployment loads", async () => {

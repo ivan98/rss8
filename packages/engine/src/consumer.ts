@@ -1,5 +1,6 @@
 import type { EngineEnv } from "./env";
 import { FINAL_FAILURE_STATUS, MAX_RETRIES, parseMessage, RETRY_DELAY_SECONDS, type EngineMessage } from "./messages";
+import { postSystemMessage } from "./system-feed";
 
 interface Failure {
   error: string;
@@ -69,10 +70,21 @@ async function route(env: EngineEnv, message: EngineMessage): Promise<Failure | 
 
 async function recordFailure(db: D1Database, message: EngineMessage, error: string): Promise<void> {
   console.error(`${subject(message)}: ${error}`);
+  const now = Date.now();
   switch (message.type) {
-    case "discover":
+    case "discover": {
       await recordFeedError(db, message.feedId, error);
+      // Guarded on NULL, so only the first failure of a run of failures posts.
+      const feed = await db
+        .prepare("UPDATE feed SET failing_since = ?2 WHERE id = ?1 AND failing_since IS NULL RETURNING key, title, site_url")
+        .bind(message.feedId, now)
+        .first<{ key: string; title: string; site_url: string | null }>();
+      if (feed) {
+        const ref = { key: feed.key, title: feed.title, siteUrl: feed.site_url };
+        await postSystemMessage(db, { type: "feed-failing", feed: ref, since: now, error }, now);
+      }
       break;
+    }
     case "article":
       // Guarded on 'pending': a late duplicate must not turn a finished item into an error.
       await db
@@ -81,7 +93,8 @@ async function recordFailure(db: D1Database, message: EngineMessage, error: stri
         .run();
       break;
     case "maintenance":
-      // Nothing to record in D1: the next local day's run continues where this one stopped.
+      // Nothing else to record: the next local day's run continues where this one stopped.
+      await postSystemMessage(db, { type: "maintenance-failed", date: message.date, error }, now);
       break;
   }
 }

@@ -7,6 +7,7 @@ import type { EngineEnv } from "./env";
 import { devCleanRoute } from "./inspect";
 import { isGreaderPath } from "./greader";
 import { sendAll } from "./messages";
+import { systemSource } from "./system-feed";
 import { parseOptions, registerDeployment, type AnySource } from "./source";
 
 /** Maintenance runs once a local day, on the first tick at or after this time in `config.timezone`. */
@@ -14,7 +15,8 @@ export const MAINTENANCE_LOCAL_TIME = { hour: 5, minute: 15 } as const;
 /** After a longer outage a feed only needs to run once to catch up. */
 const MAX_CATCH_UP_MS = 24 * 3_600_000;
 
-export function createWorker({ sources, config }: { sources: readonly AnySource[]; config: Config }) {
+export function createWorker({ sources: given, config }: { sources: readonly AnySource[]; config: Config }) {
+  const sources = [...given, systemSource];
   registerDeployment(sources, config);
   const kinds = sources.map((s) => s.kind);
   // Thrown at module load, so an invalid config fails the upload instead of every tick.

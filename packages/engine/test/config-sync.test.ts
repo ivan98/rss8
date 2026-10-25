@@ -1,12 +1,18 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { syncConfig, type Config, type FeedConfig } from "../src/index";
+import { systemFeed } from "./fakes";
 
 const db = env.DB;
 const KINDS = ["example", "other"];
 
 function config(...feeds: FeedConfig[]): Config {
-  return { timezone: "UTC", retention: { readDays: 30, unreadDays: 90, maxItems: 1000 }, tombstoneDays: 365, feeds };
+  return {
+    timezone: "UTC",
+    retention: { readDays: 30, unreadDays: 90, maxItems: 1000 },
+    tombstoneDays: 365,
+    feeds: [...feeds, systemFeed],
+  };
 }
 
 const feedA: FeedConfig = {
@@ -110,6 +116,17 @@ describe("syncConfig", () => {
         enabled: 1,
         archived_at: null,
         title: "feed-b",
+        site_url: null,
+      },
+      {
+        id: expect.any(Number),
+        key: "system",
+        source: "system",
+        options: null,
+        state: null,
+        enabled: 1,
+        archived_at: null,
+        title: "rss8",
         site_url: null,
       },
     ]);
@@ -224,12 +241,14 @@ describe("syncConfig", () => {
     expect(await folders()).toEqual([
       { key: "feed-a", category: "News", position: 0 },
       { key: "feed-b", category: null, position: 1 },
+      { key: "system", category: null, position: 2 },
     ]);
 
     await syncConfig(db, config({ ...feedB, category: "Apple" }, feedA), KINDS);
     expect(await folders()).toEqual([
       { key: "feed-a", category: null, position: 1 },
       { key: "feed-b", category: "Apple", position: 0 },
+      { key: "system", category: null, position: 2 },
     ]);
   });
 

@@ -1,4 +1,5 @@
 import type { Config } from "./config";
+import { SYSTEM } from "./system-feed";
 
 export async function syncConfig(
   db: D1Database,
@@ -55,7 +56,16 @@ INSERT INTO meta (key, value) VALUES ('config_hash', ?1)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
 
 export function assertValidConfig(config: Config, sourceKinds: readonly string[]): void {
-  const known = new Set(sourceKinds);
+  const system = config.feeds.filter((feed) => feed.key === SYSTEM || feed.source === SYSTEM);
+  if (system.length !== 1 || system[0]!.key !== SYSTEM || system[0]!.source !== SYSTEM) {
+    throw new Error(
+      `The config needs exactly one feed with key "${SYSTEM}" and source "${SYSTEM}", for the engine's own messages; set enabled: false to stop them`,
+    );
+  }
+  if (system[0]!.options !== undefined || system[0]!.schedule !== undefined) {
+    throw new Error(`The "${SYSTEM}" feed takes no options or schedule`);
+  }
+  const known = new Set([...sourceKinds, SYSTEM]);
   const seen = new Set<string>();
   for (const feed of config.feeds) {
     if (seen.has(feed.key)) throw new Error(`Duplicate feed key "${feed.key}" in config`);
