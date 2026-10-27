@@ -28,8 +28,27 @@ describe("daily report table", () => {
       version: null,
     });
 
-    const titles = [...html.matchAll(/<tr><td [^>]*>([^<]*)<\/td>/g)].map((m) => m[1]);
-    expect(titles).toEqual(["same minute, many", "same minute, few", "older", "never"]);
+    const titles = [...html.matchAll(/<tr><th [^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
+    expect(titles).toEqual(["Feed", "same minute, many", "same minute, few", "older", "never"]);
+  });
+
+  it("uses only th cells with the attributes and styles Unread and Reeder each honour", () => {
+    const html = dailyContent({
+      timezone: "Asia/Singapore",
+      feeds: [{ ...feed("errors", Date.UTC(2026, 9, 26, 3, 0), 4), errors: 2 }],
+      library: { total: 0, unread: 0, starred: 0 },
+      maintenance: { tombstoned: 0, deleted: 0, erred: 0 },
+      sizeBytes: 0,
+      version: null,
+    });
+
     expect(html).toContain('<table border="1"');
+    expect(html).not.toContain("<td");
+    const cells = [...html.matchAll(/<th ([^>]*)>/g)].map((m) => m[1]!);
+    expect(cells).toHaveLength(8);
+    for (const attrs of cells) expect(attrs).toMatch(/border-right: 1px solid #888 !important/);
+    expect(cells[1]).toMatch(/align="right".*width: 3em !important/);
+    expect(html).toContain(">4</th>");
+    expect(html).toContain("ok; 2 article errors</th>");
   });
 });

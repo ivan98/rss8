@@ -171,31 +171,60 @@ function dailyTitle(report: DailyReport): string {
 }
 
 /**
- * Reeder shows a bare table as unbordered text, so the table carries its own
- * borders and padding. Rows run newest fetch first (to the minute, as shown),
- * then most new items; feeds never fetched go last.
+ * Table markup that both clients draw with borders and aligned columns, found
+ * by testing variants on the devices. Unread drops inline styles but honours
+ * the table and cell attributes. Reeder ignores those attributes, drops all
+ * styling on `td`, overrides `th` borders unless `!important`, and lays out
+ * each row as its own table, so every cell is a `th` and every column but the
+ * last has a fixed width. Borders go on the right and bottom only (plus the
+ * outer edges) so adjacent cells don't draw double lines.
  */
+const COLUMNS = [
+  { title: "Feed", em: 7, align: "left" },
+  { title: "New", em: 3, align: "right" },
+  { title: "Last fetched", em: 6.5, align: "left" },
+  { title: "Status", em: 5.5, align: "left" },
+] as const;
+
+function tableCell(column: number, header: boolean, html: string): string {
+  const { em, align } = COLUMNS[column]!;
+  const line = "1px solid #888 !important";
+  const style = [
+    "border: 0 !important",
+    `border-right: ${line}`,
+    `border-bottom: ${line}`,
+    column === 0 ? `border-left: ${line}` : "",
+    header ? `border-top: ${line}` : "",
+    "padding: 4px 6px !important",
+    `text-align: ${align} !important`,
+    "vertical-align: top !important",
+    `font-weight: ${header ? "bold" : "normal"} !important`,
+    "overflow-wrap: anywhere !important",
+    // The last column may grow, so a long error doesn't become a narrow strip; the ones before it set the alignment.
+    column === COLUMNS.length - 1 ? `min-width: ${em}em !important` : `width: ${em}em !important; min-width: ${em}em !important; max-width: ${em}em !important`,
+  ].filter(Boolean);
+  return `<th align="${align}" valign="top" style="${style.join("; ")}">${html}</th>`;
+}
+
+/** Rows run newest fetch first (to the minute, as shown), then most new items; feeds never fetched go last. */
 export function dailyContent(report: DailyReport): string {
   const tz = report.timezone;
   const minute = (f: FeedHealth) => (f.lastFetchedAt === null ? -1 : Math.floor(f.lastFetchedAt / 60_000));
   const feeds = [...report.feeds].sort((a, b) => minute(b) - minute(a) || b.added - a.added);
-  const cell = `style="border: 1px solid #888; padding: 4px 8px; text-align: left; vertical-align: top"`;
-  const num = `style="border: 1px solid #888; padding: 4px 8px; text-align: right; vertical-align: top"`;
+  const row = (cells: string[], header = false) => `<tr>${cells.map((c, i) => tableCell(i, header, c)).join("")}</tr>`;
   const rows = feeds.map((f) => {
     const status = feedStatus(f, tz);
-    const added = f.errors ? `${f.added} (${f.errors} article errors)` : String(f.added);
     const fetched = f.lastFetchedAt === null ? "never" : localTime(f.lastFetchedAt, tz);
     const text = status.attention ? `<strong>${esc(status.text)}</strong>` : esc(status.text);
-    return `<tr><td ${cell}>${esc(f.title)}</td><td ${num}>${added}</td><td ${cell}>${fetched}</td><td ${cell}>${text}</td></tr>`;
+    const errors = f.errors ? `; ${f.errors} article errors` : "";
+    return row([esc(f.title), String(f.added), fetched, text + errors]);
   });
   const { library, maintenance } = report;
   const newTotal = report.feeds.reduce((sum, f) => sum + f.added, 0);
   return `<h3>Feeds, last 24 hours</h3>
-<table border="1" cellpadding="4" cellspacing="0" style="border-collapse: collapse">
-<thead><tr><th ${cell}>Feed</th><th ${num}>New</th><th ${cell}>Last fetched</th><th ${cell}>Status</th></tr></thead>
-<tbody>
+<table border="1" cellpadding="4" cellspacing="0">
+${row(COLUMNS.map((c) => c.title), true)}
 ${rows.join("\n")}
-</tbody>
 </table>
 <p><strong>Library:</strong> ${count(library.total)} articles kept (${count(library.unread)} unread, ${count(library.starred)} starred); ${count(newTotal)} new in 24 hours.</p>
 <p><strong>Maintenance:</strong> ${count(maintenance.tombstoned)} articles expired, ${count(maintenance.deleted)} old tombstones deleted, ${count(maintenance.erred)} stuck articles marked as errors.</p>

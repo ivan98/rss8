@@ -418,7 +418,7 @@ describe("system feed", () => {
 
     const reports = await systemMessages();
     expect(reports.map((m) => m.title)).toEqual(["rss8 daily: all 1 feeds healthy"]);
-    expect(reports[0]!.content).toMatch(/<tr><td [^>]*>plain<\/td><td [^>]*>2<\/td>/);
+    expect(reports[0]!.content).toMatch(/<tr><th [^>]*>plain<\/th><th [^>]*>2<\/th>/);
     expect(reports[0]!.content).toContain("2 articles kept (2 unread, 0 starred); 2 new in 24 hours");
 
     // The second report must not count the first one.
