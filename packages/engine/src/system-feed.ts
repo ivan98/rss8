@@ -28,7 +28,10 @@ export type SystemMessage =
 export interface FeedHealth {
   title: string;
   enabled: boolean;
+  /** The last successful discover; a failing feed keeps the time of its last success. */
   lastFetchedAt: number | null;
+  /** The newest article's date (epoch ms), expired ones included; null when the feed has none. */
+  lastNewAt: number | null;
   lastError: string | null;
   failingSince: number | null;
   /** Items crawled in the last 24 hours, and how many of them ended in `error`. */
@@ -37,6 +40,8 @@ export interface FeedHealth {
 }
 
 export interface DailyReport {
+  /** When the report was made, for the ages it shows. */
+  now: number;
   timezone: string;
   feeds: FeedHealth[];
   library: { total: number; unread: number; starred: number };
@@ -73,7 +78,10 @@ export async function postSystemMessage(db: D1Database, message: SystemMessage, 
   }
 }
 
-/** Reads the numbers for the daily message: 3 queries, about one row per item kept plus a day's new items. */
+/**
+ * Reads the numbers for the daily message: 4 queries, about two rows per item
+ * kept (tombstones included) plus a day's new items.
+ */
 export async function dailyReport(
   db: D1Database,
   config: Config,
@@ -81,7 +89,7 @@ export async function dailyReport(
   maintenance: MaintenanceReport,
   version: string | null,
 ): Promise<DailyReport> {
-  const [feeds, added, library] = await db.batch<Record<string, number | string | null>>([
+  const [feeds, added, library, lastNew] = await db.batch<Record<string, number | string | null>>([
     db.prepare(
       `SELECT id, title, enabled, last_fetched_at, last_error, failing_since FROM feed
        WHERE archived_at IS NULL AND source != '${SYSTEM}' ORDER BY position`,
@@ -97,15 +105,23 @@ export async function dailyReport(
       `SELECT count(*) AS total, sum(is_read = 0) AS unread, sum(is_starred) AS starred FROM item
        WHERE status = 'ok' AND feed_id != (SELECT id FROM feed WHERE key = '${SYSTEM}')`,
     ),
+    // The article's own date, never later than when it was stored, so a future date can't make a feed look fresh.
+    db.prepare(
+      `SELECT feed_id, max(min(coalesce(published_at * 1000, crawled_at), crawled_at)) AS last_new FROM item
+       GROUP BY feed_id`,
+    ),
   ]);
+  const lastNewAt = new Map(lastNew!.results.map((r) => [r.feed_id, r.last_new as number]));
   const counts = new Map(added!.results.map((r) => [r.feed_id, r]));
   const totals = library!.results[0]!;
   return {
+    now,
     timezone: config.timezone,
     feeds: feeds!.results.map((f) => ({
       title: f.title as string,
       enabled: f.enabled === 1,
       lastFetchedAt: f.last_fetched_at as number | null,
+      lastNewAt: lastNewAt.get(f.id) ?? null,
       lastError: f.last_error as string | null,
       failingSince: f.failing_since as number | null,
       added: Number(counts.get(f.id)?.added ?? 0),
@@ -180,10 +196,11 @@ function dailyTitle(report: DailyReport): string {
  * outer edges) so adjacent cells don't draw double lines.
  */
 const COLUMNS = [
-  { title: "Feed", em: 7, align: "left" },
+  { title: "Feed", em: 6, align: "left" },
   { title: "New", em: 3, align: "right" },
-  { title: "Last fetched", em: 6.5, align: "left" },
-  { title: "Status", em: 5.5, align: "left" },
+  { title: "Last new", em: 3.5, align: "left" },
+  { title: "Last discover", em: 4.5, align: "left" },
+  { title: "Last discover status", em: 4.5, align: "left" },
 ] as const;
 
 function tableCell(column: number, header: boolean, html: string): string {
@@ -206,18 +223,21 @@ function tableCell(column: number, header: boolean, html: string): string {
   return `<th align="${align}" valign="top" style="${style.join("; ")}">${html}</th>`;
 }
 
-/** Rows run newest fetch first (to the minute, as shown), then most new items; feeds never fetched go last. */
+/**
+ * Lists when each feed last brought a new article, to show feeds that have
+ * stopped. Rows run newest article first, then most new items; feeds with no
+ * articles go last.
+ */
 export function dailyContent(report: DailyReport): string {
   const tz = report.timezone;
-  const minute = (f: FeedHealth) => (f.lastFetchedAt === null ? -1 : Math.floor(f.lastFetchedAt / 60_000));
-  const feeds = [...report.feeds].sort((a, b) => minute(b) - minute(a) || b.added - a.added);
+  const feeds = [...report.feeds].sort((a, b) => (b.lastNewAt ?? -1) - (a.lastNewAt ?? -1) || b.added - a.added);
+  const ago = (at: number | null, none: string) => (at === null ? none : age(report.now - at));
   const row = (cells: string[], header = false) => `<tr>${cells.map((c, i) => tableCell(i, header, c)).join("")}</tr>`;
   const rows = feeds.map((f) => {
     const status = feedStatus(f, tz);
-    const fetched = f.lastFetchedAt === null ? "never" : localTime(f.lastFetchedAt, tz);
     const text = status.attention ? `<strong>${esc(status.text)}</strong>` : esc(status.text);
     const errors = f.errors ? `; ${f.errors} article errors` : "";
-    return row([esc(f.title), String(f.added), fetched, text + errors]);
+    return row([esc(f.title), String(f.added), ago(f.lastNewAt, "none"), ago(f.lastFetchedAt, "never"), text + errors]);
   });
   const { library, maintenance } = report;
   const newTotal = report.feeds.reduce((sum, f) => sum + f.added, 0);
@@ -248,6 +268,14 @@ function duration(ms: number): string {
   if (minutes < 120) return `${minutes} minutes`;
   const hours = Math.round(minutes / 60);
   return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+}
+
+/** A compact age for the narrow table columns: "40 min", "6 h", "12 d". */
+function age(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} d`;
 }
 
 function count(n: number): string {

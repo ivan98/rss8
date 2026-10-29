@@ -408,7 +408,7 @@ describe("system feed", () => {
   it("posts one daily report per maintenance date, listing each feed's new items and status", async () => {
     const worker = await setup(plain);
     captureQueue();
-    fakeOrigin({ [FEED_URL]: serve(rss([{ guid: "a" }, { guid: "b" }])) });
+    fakeOrigin({ [FEED_URL]: serve(rss([{ guid: "a", pubDate: day(1) }, { guid: "b", pubDate: day(2) }])) });
     await deliver(worker, { type: "discover", feedId: await feedId("plain") });
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -419,6 +419,9 @@ describe("system feed", () => {
     const reports = await systemMessages();
     expect(reports.map((m) => m.title)).toEqual(["rss8 daily: all 1 feeds healthy"]);
     expect(reports[0]!.content).toMatch(/<tr><th [^>]*>plain<\/th><th [^>]*>2<\/th>/);
+    // Last new is the newest article's own date (2 January), not when it was stored.
+    const lastNew = Number(reports[0]!.content.match(/>plain<\/th><th [^>]*>2<\/th><th [^>]*>(\d+) d<\/th>/)?.[1]);
+    expect(Math.abs(lastNew - (message.now - Date.UTC(2026, 0, 2)) / 86_400_000)).toBeLessThan(1);
     expect(reports[0]!.content).toContain("2 articles kept (2 unread, 0 starred); 2 new in 24 hours");
 
     // The second report must not count the first one.
