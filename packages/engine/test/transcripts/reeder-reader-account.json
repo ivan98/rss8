@@ -1,0 +1,600 @@
+[
+ {
+  "seq": 1,
+  "t_ms": 0,
+  "method": "POST",
+  "path": "/accounts/ClientLogin",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "92"
+  },
+  "body": {
+   "form": [
+    [
+     "accountType",
+     "HOSTED_OR_GOOGLE"
+    ],
+    [
+     "output",
+     "json"
+    ],
+    [
+     "client",
+     "Reeder"
+    ],
+    [
+     "service",
+     "reader"
+    ],
+    [
+     "Passwd",
+     "<redacted>"
+    ],
+    [
+     "Email",
+     "test"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 2,
+  "t_ms": 118,
+  "method": "GET",
+  "path": "/reader/api/0/user-info",
+  "query": [
+   [
+    "output",
+    "json"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 3,
+  "t_ms": 7393,
+  "method": "GET",
+  "path": "/reader/api/0/subscription/list",
+  "query": [
+   [
+    "output",
+    "json"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 4,
+  "t_ms": 7685,
+  "method": "GET",
+  "path": "/reader/api/0/stream/items/ids",
+  "query": [
+   [
+    "xt",
+    "user/-/state/com.google/read"
+   ],
+   [
+    "s",
+    "user/-/state/com.google/reading-list"
+   ],
+   [
+    "n",
+    "10000"
+   ],
+   [
+    "output",
+    "json"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 5,
+  "t_ms": 7987,
+  "method": "GET",
+  "path": "/reader/api/0/stream/items/ids",
+  "query": [
+   [
+    "s",
+    "user/-/state/com.google/starred"
+   ],
+   [
+    "output",
+    "json"
+   ],
+   [
+    "n",
+    "10000"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 6,
+  "t_ms": 8398,
+  "method": "GET",
+  "path": "/reader/api/0/token",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 7,
+  "t_ms": 8678,
+  "method": "POST",
+  "path": "/reader/api/0/stream/items/contents",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "256",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "i",
+     "00065e7ab66ece00"
+    ],
+    [
+     "i",
+     "00065e7aec13b700"
+    ],
+    [
+     "i",
+     "00065e7b0fd6fd00"
+    ],
+    [
+     "i",
+     "00065e7a92ab8800"
+    ],
+    [
+     "i",
+     "00065e7a6ee84200"
+    ],
+    [
+     "i",
+     "00065e7aa48d2b00"
+    ],
+    [
+     "i",
+     "00065e7b21b8a000"
+    ],
+    [
+     "i",
+     "00065e7afdf55a00"
+    ],
+    [
+     "i",
+     "00065e7ada321400"
+    ],
+    [
+     "i",
+     "00065e7ac8507100"
+    ],
+    [
+     "i",
+     "00065e7b339a4300"
+    ],
+    [
+     "i",
+     "000641bb8a956400"
+    ],
+    [
+     "output",
+     "json"
+    ],
+    [
+     "T",
+     "stubwritetoken"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 8,
+  "t_ms": 9018,
+  "method": "GET",
+  "path": "/reader/api/0/stream/items/ids",
+  "query": [
+   [
+    "output",
+    "json"
+   ],
+   [
+    "s",
+    "user/-/state/com.google/read"
+   ],
+   [
+    "ot",
+    "1790141682"
+   ],
+   [
+    "n",
+    "10000"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 9,
+  "t_ms": 9298,
+  "method": "POST",
+  "path": "/reader/api/0/stream/items/contents",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "47",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "i",
+     "00065e7a80c9e500"
+    ],
+    [
+     "T",
+     "stubwritetoken"
+    ],
+    [
+     "output",
+     "json"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 10,
+  "t_ms": 22702,
+  "method": "POST",
+  "path": "/reader/api/0/edit-tag",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "74",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "i",
+     "00065e7a6ee84200"
+    ],
+    [
+     "a",
+     "user/-/state/com.google/read"
+    ],
+    [
+     "T",
+     "stubwritetoken"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 11,
+  "t_ms": 31660,
+  "method": "POST",
+  "path": "/reader/api/0/edit-tag",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "74",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "T",
+     "stubwritetoken"
+    ],
+    [
+     "i",
+     "00065e7a92ab8800"
+    ],
+    [
+     "a",
+     "user/-/state/com.google/read"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 12,
+  "t_ms": 37596,
+  "method": "POST",
+  "path": "/reader/api/0/edit-tag",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "74",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "T",
+     "stubwritetoken"
+    ],
+    [
+     "a",
+     "user/-/state/com.google/read"
+    ],
+    [
+     "i",
+     "00065e7aa48d2b00"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 13,
+  "t_ms": 46618,
+  "method": "POST",
+  "path": "/reader/api/0/edit-tag",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "74",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "i",
+     "00065e7a92ab8800"
+    ],
+    [
+     "r",
+     "user/-/state/com.google/read"
+    ],
+    [
+     "T",
+     "stubwritetoken"
+    ]
+   ],
+   "status": 200
+  }
+ },
+ {
+  "seq": 14,
+  "t_ms": 114806,
+  "method": "GET",
+  "path": "/reader/api/0/subscription/list",
+  "query": [
+   [
+    "output",
+    "json"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 15,
+  "t_ms": 114875,
+  "method": "GET",
+  "path": "/reader/api/0/stream/items/ids",
+  "query": [
+   [
+    "output",
+    "json"
+   ],
+   [
+    "s",
+    "user/-/state/com.google/reading-list"
+   ],
+   [
+    "n",
+    "10000"
+   ],
+   [
+    "xt",
+    "user/-/state/com.google/read"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 16,
+  "t_ms": 114933,
+  "method": "GET",
+  "path": "/reader/api/0/stream/items/ids",
+  "query": [
+   [
+    "output",
+    "json"
+   ],
+   [
+    "n",
+    "10000"
+   ],
+   [
+    "s",
+    "user/-/state/com.google/starred"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 17,
+  "t_ms": 114999,
+  "method": "GET",
+  "path": "/reader/api/0/stream/items/ids",
+  "query": [
+   [
+    "output",
+    "json"
+   ],
+   [
+    "ot",
+    "1790141788"
+   ],
+   [
+    "s",
+    "user/-/state/com.google/read"
+   ],
+   [
+    "n",
+    "10000"
+   ]
+  ],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "status": 200
+  }
+ },
+ {
+  "seq": 18,
+  "t_ms": 120595,
+  "method": "POST",
+  "path": "/reader/api/0/edit-tag",
+  "query": [],
+  "headers": {
+   "user-agent": "Reeder/5060003 CFNetwork/3896.100.1.2.1 Darwin/27.0.0",
+   "content-type": "application/x-www-form-urlencoded",
+   "accept": "*/*",
+   "accept-encoding": "gzip, br",
+   "accept-language": "en-US,en;q=0.9",
+   "content-length": "77",
+   "authorization": "GoogleLogin auth=<redacted>"
+  },
+  "body": {
+   "form": [
+    [
+     "T",
+     "stubwritetoken"
+    ],
+    [
+     "a",
+     "user/-/state/com.google/starred"
+    ],
+    [
+     "i",
+     "00065e7ab66ece00"
+    ]
+   ],
+   "status": 200
+  }
+ }
+]
