@@ -1,0 +1,30 @@
+{
+  "name": "rss8",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "wrangler types -c examples/basic/wrangler.jsonc && tsc && tsc -p packages/source-kit/cli",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "deploy:dry-run": "wrangler deploy --dry-run -c examples/basic/wrangler.jsonc --outdir dist"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "@types/node": "^24.19.2",
+    "@typescript-eslint/parser": "^8.72.0",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5",
+    "wrangler": "4.152.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261019.1": true,
+    "esbuild@0.28.2": true
+  }
+}

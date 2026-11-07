@@ -1,0 +1,11 @@
+{
+  "name": "@rss8/example-basic",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rss8/engine": "*",
+    "@rss8/source-rss": "*",
+    "@rss8/source-substack": "*"
+  }
+}

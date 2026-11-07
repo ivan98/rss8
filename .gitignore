@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars*
+.env*
+dist/
+coverage/
+.DS_Store
+worker-configuration.d.ts
+.claude/worktrees/
