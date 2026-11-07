@@ -81,3 +81,12 @@ These rules must hold:
 - The `edit-tag` write token `T` is optional (Unread sends none). `GET /api/greader.php` answers exactly `OK`, or Unread refuses the URL.
 
 Test sync behaviour by replaying the scrubbed request transcripts in `packages/engine/test/transcripts/`, and add new ones captured from real clients (scrub credentials and tokens first).
+
+## Releases
+
+- One version for the whole repo, in semantic versioning with a `v` tag (`v0.1.0`). Every `package.json` under `packages/` and `examples/` carries it.
+- While in `0.x`, a change that breaks a deployment bumps the minor version, and anything else bumps the patch. Breaking changes include: the `Source` interface or `createWorker`, the config shape, a required binding in `wrangler.jsonc`, or a Durable Object class change. From `1.0`, breaking changes bump the major version and features the minor.
+- To cut a release:
+  1. On a branch, run `npm version <x.y.z> --workspaces --no-git-tag-version`, commit "Release v<x.y.z>", open the PR and merge it once the checks pass.
+  2. Run `gh release create v<x.y.z> --target main --title v<x.y.z> --generate-notes`.
+  3. Put an **Upgrading** section at the top of the notes. It lists every manual step since the last release: new migrations (applied before the deploy), `wrangler.jsonc` changes, a class change (ships in its own deploy), and config changes. Write "None" when there are none.

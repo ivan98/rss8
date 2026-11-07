@@ -76,7 +76,8 @@ Your deployment lives in a repo of your own, which can stay private, with `rss8`
 
 ```bash
 mkdir my-rss8 && cd my-rss8 && git init
-git submodule add https://github.com/ivan98/rss8 vendor/rss8
+git submodule add -b main https://github.com/ivan98/rss8 vendor/rss8
+git -C vendor/rss8 checkout v0.1.0    # optional: pin to a release instead of following main
 cp -R vendor/rss8/examples/basic/src vendor/rss8/examples/basic/rss8.config.ts vendor/rss8/examples/basic/wrangler.jsonc .
 ```
 
@@ -113,7 +114,12 @@ curl https://<your-worker>.workers.dev/health
 
 Use `openssl rand -hex 32` for `AUTH_SECRET` and `ADMIN_TOKEN`. Without `API_PASSWORD` and `AUTH_SECRET` every login is refused, and without `ADMIN_TOKEN` the admin routes answer 503.
 
-To update later, run `git -C vendor/rss8 pull`, then `npx wrangler d1 migrations apply rss8 --remote` and `npx wrangler deploy`, in that order: migrations always go first.
+To update later, move the submodule, then apply migrations and deploy, in that order: migrations always go first.
+
+- **To a [release](https://github.com/ivan98/rss8/releases)** (read its "Upgrading" notes first): `git -C vendor/rss8 fetch --tags && git -C vendor/rss8 checkout v0.2.0`, using the new version.
+- **Or to the latest `main`:** `git submodule update --remote vendor/rss8`.
+
+Then run `npm install`, `npx wrangler d1 migrations apply rss8 --remote` and `npx wrangler deploy`, and commit `vendor/rss8`.
 
 The entry point registers your sources and re-exports the two Durable Object classes under fixed names:
 
